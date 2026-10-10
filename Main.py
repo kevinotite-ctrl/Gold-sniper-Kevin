@@ -222,25 +222,31 @@ def handle_start(message):
         ADMIN_CHAT_ID=message.chat.id
     g=get_gold()
     b=get_btc()
+    rg=calc_rsi(prices_history) if len(prices_history)>2 else 50.0
+    rb=calc_rsi(btc_history) if len(btc_history)>2 else 50.0
+    market="OPEN ✅" if is_forex_market_open() else "CLOSED ❌ Weekend"
     txt=message.text
+
     if txt.startswith('/id'):
         bot.reply_to(message, "Your ID: "+str(message.from_user.id))
         return
     if txt.startswith('/testsignal'):
-        bot.reply_to(message, "Creating TEST...")
+        bot.reply_to(message, "🔍 Creating TEST luxury signal... check DM!")
         request_approval("GOLD", g, 28.5, "BUY")
         return
     if txt.startswith('/active'):
         if len(active_signals)==0:
-            bot.reply_to(message, "📭 No active signals")
+            bot.reply_to(message, "📭 No active signals - Bot is analyzing market every 60s...")
         else:
-            t="Active:\n"
+            t="📊 Active:\n"
             for s in active_signals:
                 t+=s["symbol"]+" "+s["action"]+" "+str(round(s["entry"],2))+"\n"
             bot.reply_to(message,t)
         return
-    market="OPEN ✅" if is_forex_market_open() else "CLOSED ❌"
-    bot.reply_to(message, "👑 KEVIN SHORT LUXURY ✅\n\n🥇 GOLD: $"+str(g)+" ("+market+")\n₿ BTC: $"+str(b)+"\n\n/testsignal to test\n/price /active")
+    if txt.startswith('/signal') or txt.startswith('/price'):
+        bot.reply_to(message, "🔍 ANALYZING THE MARKET...\n\n👑 KEVIN TRAILBLAZE BOT\n\n🥇 GOLD: $"+str(round(g,2))+" RSI: "+str(round(rg,1))+" "+market+"\n₿ BTC: $"+str(round(b,2))+" RSI: "+str(round(rb,1))+" 24/7 OPEN ✅\n\n⏳ Waiting for RSI <30 BUY or >70 SELL\nScanning every 60 seconds...\n\nActive signals: "+str(len(active_signals)))
+        return
+    bot.reply_to(message, "👑 KEVIN SHORT LUXURY ✅\n\n🥇 GOLD: $"+str(g)+" ("+market+")\n₿ BTC: $"+str(b)+"\n\nCommands:\n/signal - Analyze market\n/testsignal - Test approval\n/price /active /id")
 
 threading.Thread(target=signal_loop,daemon=True).start()
 threading.Thread(target=lambda: bot.infinity_polling(),daemon=True).start()
