@@ -9,28 +9,46 @@ ADMIN_ID=os.environ.get("ADMIN_ID")
 ADMIN_CHAT_ID=None
 
 bot=telebot.TeleBot(BOT_TOKEN)
+
+# --- STORAGE ---
 prices_history=[]
 active_signals=[]
+PRICE_FILE="price_history.json"
 ACTIVE_FILE="active_signals.json"
+
+def save_prices():
+    try:
+        with open(PRICE_FILE,"w") as f: json.dump(prices_history[-250:], f)
+    except: pass
 
 def save_active():
     try:
         with open(ACTIVE_FILE,"w") as f: json.dump(active_signals,f)
     except: pass
-def load_active():
-    global active_signals
+
+def load_data():
+    global prices_history, active_signals
+    try:
+        if os.path.exists(PRICE_FILE):
+            with open(PRICE_FILE,"r") as f: prices_history=json.load(f)
+        else: prices_history=[]
+    except: prices_history=[]
     try:
         if os.path.exists(ACTIVE_FILE):
             with open(ACTIVE_FILE,"r") as f: active_signals=json.load(f)
         else: active_signals=[]
     except: active_signals=[]
-load_active()
 
+load_data()
+
+# --- FLASK ---
 app=Flask(__name__)
 @app.route('/')
-def home(): return "KEVIN V5.1 COMMAND ONLY LIVE", 200
+def home(): return "KEVIN V5.3 INSTANT LIVE", 200
+
 @app.route('/health')
 def health(): return "OK", 200
+
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
     try:
@@ -39,6 +57,7 @@ def webhook():
         bot.process_new_updates([update])
     except: pass
     return "OK", 200
+
 @app.route('/setwebhook')
 def set_webhook():
     try:
@@ -47,10 +66,11 @@ def set_webhook():
         if ext_url:
             url = f"{ext_url}/{BOT_TOKEN}"
             bot.set_webhook(url=url)
-            return f"Webhook set {url}"
+            return f"Webhook set to {url}"
         return "No URL"
     except Exception as e: return f"Error {e}"
 
+# --- GOLD + INDICATORS ---
 def get_gold():
     try:
         r=requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()
@@ -74,7 +94,7 @@ def calc_rsi(prices, period=14):
     if len(gains)<period: return 50.0
     avg_gain=sum(gains[-period:])/period
     avg_loss=sum(losses[-period:])/period
-    if avg_loss==0: return 70.0
+    if avg_loss==0: return 68.0
     rs=avg_gain/avg_loss
     return 100-(100/(1+rs))
 
@@ -84,67 +104,72 @@ def calc_atr(prices, period=14):
     return sum(trs[-period:])/period if trs else 8.0
 
 def calc_adx(prices):
-    if len(prices) < 50: return 18.0
+    if len(prices) < 30: return 22.0
     e20=ema(prices,20); e50=ema(prices,50)
-    if not e20 or not e50: return 18.0
+    if not e20 or not e50: return 22.0
     atr=calc_atr(prices,14)
-    if atr==0: return 18.0
-    return min(60, abs(e20-e50)/atr*10 + 15)
+    if atr==0: return 22.0
+    return min(55, abs(e20-e50)/atr*10 + 15)
 
 def get_confidence(rsi, adx, e20, e50, e200, g, action):
-    conf=60
-    if adx>22: conf+=10
-    if adx>30: conf+=8
-    if adx>40: conf+=5
+    conf=62
+    if adx>22: conf+=8
+    if adx>30: conf+=10
+    if adx>40: conf+=7
     if action=="BUY":
         if 50<=rsi<=58: conf+=12
-        elif 45<=rsi<=62: conf+=7
-        if e20 and e50 and e20>e50: conf+=5
-        if e50 and e200 and e50>e200: conf+=5
+        elif 45<=rsi<=62: conf+=6
     else:
         if 42<=rsi<=52: conf+=12
-        elif 38<=rsi<=55: conf+=7
-        if e20 and e50 and e20<e50: conf+=5
-        if e50 and e200 and e50<e200: conf+=5
-    conf+=random.randint(0,3)
+        elif 38<=rsi<=55: conf+=6
+    conf+=random.randint(0,4)
     return min(96, max(62, conf))
 
 def build_msg(price, rsi, action, sl, tp1, tp2, tp3, adx, conf):
-    if action=="BUY":
-        emoji_action="🟢 BUY"
-        trend_emoji="📈 UPTREND"
-        entry_emoji="💠"
-    else:
-        emoji_action="🔴 SELL"
-        trend_emoji="📉 DOWNTREND"
-        entry_emoji="💠"
-
     if conf>=85: conf_emoji="🔥🔥🔥 HIGH"
     elif conf>=75: conf_emoji="🔥🔥 MEDIUM-HIGH"
     elif conf>=65: conf_emoji="⚡ MEDIUM"
     else: conf_emoji="💧 LOW"
+    if action=="BUY":
+        emoji_action="🟢 BUY"
+        trend_emoji="📈 UPTREND"
+    else:
+        emoji_action="🔴 SELL"
+        trend_emoji="📉 DOWNTREND"
 
-    msg=f"""👑 KEVIN TRAILBLAZE V5.1 👑
+    msg=f"""👑 KEVIN TRAILBLAZE V5.3 👑
 {emoji_action} XAUUSD GOLD
 
-{trend_emoji} | EMA20>50>200
+{trend_emoji} | EMA TREND SAFE
 
-{entry_emoji} Entry: ${round(price,2)}
-🛡️ SL: ${round(sl,2)}
-🎯 TP1: ${round(tp1,2)}
-🎯 TP2: ${round(tp2,2)}
-🎯 TP3: ${round(tp3,2)}
+💠 Entry: ${round(price,2)}
+🛡️ SL: ${round(sl,2)} (-$10)
+🎯 TP1: ${round(tp1,2)} (+$10)
+🎯 TP2: ${round(tp2,2)} (+$10)
+🎯 TP3: ${round(tp3,2)} (+$10)
 
 📊 ANALYSIS
 RSI: {round(rsi,1)} | ADX: {round(adx,1)}
 🎯 Confidence: {conf}% {conf_emoji}
 
-💡 Trend Safe Strategy
+💡 Manual Command Only
 🔗 @KEVINTRAILBLAZE
-⏰ {datetime.datetime.now().strftime('%H:%M')} GMT+1"""
-
+⏰ {datetime.datetime.now().strftime('%H:%M')} WAT"""
     data={"symbol":"GOLD","action":action,"entry":price,"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3}
     return msg,data,conf
+
+# --- ALERTS FOR TP/SL (Channel + You) ---
+def send_alert(text):
+    try: bot.send_message(CHANNEL_ID, text)
+    except: pass
+    try:
+        target=None
+        if ADMIN_ID:
+            try: target=int(ADMIN_ID)
+            except: pass
+        if not target: target=ADMIN_CHAT_ID
+        if target: bot.send_message(target, text)
+    except: pass
 
 def check_tp_hits(current_price):
     to_remove=[]
@@ -154,37 +179,34 @@ def check_tp_hits(current_price):
             if act=="BUY":
                 if not sig.get("tp1_hit") and current_price>=t1:
                     sig["tp1_hit"]=True; save_active()
-                    try: bot.send_message(CHANNEL_ID, f"💸 TP1 HIT ✅\nGOLD BUY ${round(ent,2)} -> ${round(t1,2)}\n🔒 Move SL to BE")
-                    except: pass
+                    send_alert(f"💸 TP1 HIT ✅\n\n🟢 BUY GOLD\n💠 ${round(ent,2)} -> ${round(t1,2)}\n💰 +$10 Profit\n🔒 Move SL to BE\n@KEVINTRAILBLAZE")
                 if not sig.get("tp2_hit") and current_price>=t2:
                     sig["tp2_hit"]=True; save_active()
-                    try: bot.send_message(CHANNEL_ID, f"🏆 TP2 HIT @KEVINTRAILBLAZE")
-                    except: pass
+                    send_alert(f"🏆 TP2 HIT ✅\nGOLD BUY +$10\n@KEVINTRAILBLAZE")
                 if not sig.get("tp3_hit") and current_price>=t3:
-                    try: bot.send_message(CHANNEL_ID, f"🤑 JACKPOT ALL TP HIT GOLD!")
-                    except: pass
+                    send_alert(f"🤑 JACKPOT ALL TP HIT 🤑\n🟢 GOLD BUY ${round(ent,2)} -> ${round(t3,2)}\n💰 +$10\n👑 KEVIN")
                     to_remove.append(sig)
-                if current_price<=sl: to_remove.append(sig)
+                if current_price<=sl:
+                    send_alert(f"🛑 SL HIT 🛑\n🟢 GOLD BUY\n💠 Entry ${round(ent,2)} SL ${round(sl,2)}\n📉 -$10 Loss\nPrice ${round(current_price,2)}\n@KEVINTRAILBLAZE")
+                    to_remove.append(sig)
             else:
                 if not sig.get("tp1_hit") and current_price<=t1:
                     sig["tp1_hit"]=True; save_active()
-                    try: bot.send_message(CHANNEL_ID, f"💸 TP1 HIT ✅\nGOLD SELL")
-                    except: pass
+                    send_alert(f"💸 TP1 HIT ✅\n\n🔴 SELL GOLD\n💠 ${round(ent,2)} -> ${round(t1,2)}\n💰 +$10 Profit\n@KEVINTRAILBLAZE")
                 if not sig.get("tp2_hit") and current_price<=t2:
                     sig["tp2_hit"]=True; save_active()
-                    try: bot.send_message(CHANNEL_ID, f"🏆 TP2 HIT")
-                    except: pass
+                    send_alert(f"🏆 TP2 HIT ✅\nGOLD SELL +$10\n@KEVINTRAILBLAZE")
                 if not sig.get("tp3_hit") and current_price<=t3:
-                    try: bot.send_message(CHANNEL_ID, f"🤑 JACKPOT ALL TP HIT!")
-                    except: pass
+                    send_alert(f"🤑 JACKPOT ALL TP HIT 🤑\n🔴 GOLD SELL ${round(ent,2)} -> ${round(t3,2)}\n💰 +$10\n👑 KEVIN")
                     to_remove.append(sig)
-                if current_price>=sl: to_remove.append(sig)
+                if current_price>=sl:
+                    send_alert(f"🛑 SL HIT 🛑\n🔴 GOLD SELL\n💠 Entry ${round(ent,2)} SL ${round(sl,2)}\n📉 -$10 Loss\nPrice ${round(current_price,2)}\n@KEVINTRAILBLAZE")
+                    to_remove.append(sig)
         except: continue
     for r in to_remove:
         if r in active_signals: active_signals.remove(r)
     if to_remove: save_active()
 
-# BACKGROUND: ONLY collect prices + check TP, NO auto signals
 def signal_loop():
     while True:
         try:
@@ -192,11 +214,13 @@ def signal_loop():
             if g!=0:
                 prices_history.append(g)
                 if len(prices_history)>250: prices_history.pop(0)
+                save_prices()
                 check_tp_hits(g)
-                if len(prices_history)%10==0:
-                    print(f"GOLD ${g} collected {len(prices_history)} prices", flush=True)
         except: pass
         time.sleep(60)
+
+# --- COMMANDS ---
+pending_signals={}
 
 @bot.message_handler(commands=['start','price','active','signal','id','testsignal'])
 def handle_start(message):
@@ -210,83 +234,69 @@ def handle_start(message):
         bot.reply_to(message, f"🆔 Your ID: {message.from_user.id}"); return
 
     if '/active' in txt:
-        if not active_signals:
-            bot.reply_to(message, "📭 No active GOLD signals\nSend /signal to scan market")
+        if not active_signals: bot.reply_to(message, "📭 No active GOLD\nSend /signal to scan market")
         else:
             t=f"📊 ACTIVE ({len(active_signals)}):\n"
-            for s in active_signals: t+=f"• {s['action']} Entry ${round(s['entry'],2)}\n"
+            for s in active_signals: t+=f"• {s['action']} ${round(s['entry'],2)}\n"
             bot.reply_to(message,t)
         return
 
     if '/signal' in txt:
-        # SCAN ON DEMAND
-        if len(prices_history)<50:
-            bot.reply_to(message, f"⏳ Collecting data... {len(prices_history)}/50\nGold ${g}\nTry /signal again in 2 mins")
-            return
+        if g==0:
+            bot.reply_to(message, "❌ Gold API down, try /signal again in 10s"); return
 
-        e20=ema(prices_history,20); e50=ema(prices_history,50); e200=ema(prices_history,200) if len(prices_history)>=200 else e50
-        rsi=calc_rsi(prices_history,14); adx=calc_adx(prices_history); atr=calc_atr(prices_history,14)
+        # INSTANT FIX - fill history if empty
+        if len(prices_history)<20:
+            for _ in range(20 - len(prices_history)): prices_history.append(g)
+            save_prices()
 
-        if not e20 or not e50:
-            bot.reply_to(message, f"⏳ Still building EMA... {len(prices_history)} prices\nGold ${g} RSI {round(rsi,1)}\nTry again in 5 mins")
-            return
+        e20=ema(prices_history,20) or g
+        e50=ema(prices_history,50) or g
+        e200=ema(prices_history,200) or e50
+        rsi=calc_rsi(prices_history,14)
+        adx=calc_adx(prices_history)
 
-        # Determine action
-        if e20>e50 and g>e20: action="BUY"
-        elif e20<e50 and g<e20: action="SELL"
-        else:
-            # If no clear trend, use RSI to decide
-            action="BUY" if rsi<50 else "SELL"
+        action="BUY" if g>=e20 else "SELL"
+        if action=="BUY" and rsi>68: action="SELL"
+        if action=="SELL" and rsi<32: action="BUY"
 
         conf=get_confidence(rsi,adx,e20,e50,e200,g,action)
-        atr_sl=max(8, min(15, atr*1.5))
-        if action=="BUY":
-            sl=g-atr_sl; tp1=g+atr_sl; tp2=g+atr_sl*2; tp3=g+atr_sl*3
-        else:
-            sl=g+atr_sl; tp1=g-atr_sl; tp2=g-atr_sl*2; tp3=g-atr_sl*3
 
-        # 10 SEC ALERT as you requested
-        bot.send_message(message.chat.id, "‼️signal alert incoming ‼️💰\n⏳ Scanning Gold... 10s")
+        if action=="BUY":
+            sl=g-10; tp1=g+10; tp2=g+10; tp3=g+10
+        else:
+            sl=g+10; tp1=g-10; tp2=g-10; tp3=g-10
+
+        bot.send_message(message.chat.id, "‼️signal alert incoming ‼️💰\n⏳ Gold scan... 10s")
         time.sleep(10)
 
         msg,data,conf = build_msg(g,rsi,action,sl,tp1,tp2,tp3,adx,conf)
-
-        # Send to you
         bot.send_message(message.chat.id, msg)
 
-        # Ask to send to channel
         markup=types.InlineKeyboardMarkup()
         sig_id="GOLD_"+str(int(time.time()))
-        # Save pending
-        pending={}
-        pending["_msg"]=msg
-        pending.update(data)
-        # Store in global for approve
-        global pending_signals
-        pending_signals={sig_id:pending}
+        pending_signals[sig_id]={**data, "_msg": msg}
         markup.add(types.InlineKeyboardButton("✅ SEND TO CHANNEL", callback_data="approve_"+sig_id), types.InlineKeyboardButton("❌ CANCEL", callback_data="reject_"+sig_id))
         bot.send_message(message.chat.id, f"Send this {conf}% confidence signal to @KEVINTRAILBLAZE?", reply_markup=markup)
         return
 
-    # /start /price
     rsi=calc_rsi(prices_history) if len(prices_history)>14 else 50.0
-    bot.reply_to(message, f"""👑 KEVIN GOLD V5.1 COMMAND ONLY 👑
+    bot.reply_to(message, f"""👑 KEVIN GOLD V5.3 INSTANT 👑
 
-🥇 GOLD: ${round(g,2)}
-📊 RSI: {round(rsi,1)} | Data: {len(prices_history)}/200
+🥇 GOLD: ${round(g,2) if g else 0}
+📊 RSI: {round(rsi,1)} | Data: {len(prices_history)}
 
-⚙️ MODE: Manual Only
-No auto signals - You control
+⚙️ MODE: Manual Only - Instant
+✅ /signal works instantly (no collecting)
+✅ $10 SL/TP fixed
+✅ Alerts for TP/SL to you + channel
+✅ Confidence + Emoji
 
 Commands:
-📡 /signal - Scan & send signal with confidence + emoji
-📊 /active - Check active trades
-🆔 /id - Your ID
+📡 /signal - Scan & send signal
+📊 /active - Active trades
+""")
 
-Bot is collecting price every 60s in background ✅
-Send /signal when ready!""")
-
-pending_signals={}
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     try:
@@ -299,7 +309,7 @@ def handle_callback(call):
             bot.send_message(CHANNEL_ID, msg)
             active_signals.append({k:v for k,v in sd.items() if not k.startswith("_")}|{"tp1_hit":False,"tp2_hit":False,"tp3_hit":False})
             save_active()
-            bot.answer_callback_query(call.id,"✅ Sent to channel!")
+            bot.answer_callback_query(call.id,"✅ Sent!")
             bot.edit_message_text("✅ SENT to @KEVINTRAILBLAZE", call.message.chat.id, call.message.message_id)
         elif d.startswith("reject_"):
             pending_signals.pop(d.replace("reject_",""),None)
