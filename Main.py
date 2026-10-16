@@ -37,7 +37,7 @@ load_active()
 app=Flask(__name__)
 @app.route('/')
 def home():
-    return f"KEVIN GOLD ONLY V4 LIVE | Active {len(active_signals)} | Gold Price ${get_gold()}"
+    return f"KEVIN GOLD ONLY V4 - TP $10 LIVE | Active {len(active_signals)} | Gold Price ${get_gold()}"
 
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
@@ -90,12 +90,10 @@ def calc_rsi(prices, period=14):
 
 def build_short_msg(symbol, price, rsi, action):
     sl=price-10 if action=="BUY" else price+10
-    tp1=price+20 if action=="BUY" else price-20
-    tp2=price+40 if action=="BUY" else price-40
-    tp3=price+60 if action=="BUY" else price-60
+    tp1=price+10 if action=="BUY" else price-10 # ONLY TP - $10
     emoji="🟢 BUY" if action=="BUY" else "🔴 SELL"
-    msg="👑 KEVIN TRAILBLAZE 👑\n"+emoji+" XAUUSD GOLD\n\n💠 Entry: $"+str(round(price,2))+"\n🛡️ SL: $"+str(round(sl,2))+"\n\n🎯 TP1: $"+str(round(tp1,2))+"\n🎯 TP2: $"+str(round(tp2,2))+"\n🎯 TP3: $"+str(round(tp3,2))+"\n\n📊 RSI: "+str(round(rsi,1))+"\n🔗 @KEVINTRAILBLAZE"
-    data={"symbol":symbol,"action":action,"entry":price,"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3}
+    msg="👑 KEVIN TRAILBLAZE 👑\n"+emoji+" XAUUSD GOLD\n\n💠 Entry: $"+str(round(price,2))+"\n🛡️ SL: $"+str(round(sl,2))+"\n🎯 TP: $"+str(round(tp1,2))+" (+$10)\n\n📊 RSI: "+str(round(rsi,1))+"\n🔗 @KEVINTRAILBLAZE"
+    data={"symbol":symbol,"action":action,"entry":price,"sl":sl,"tp1":tp1}
     return msg,data
 
 def request_approval(symbol, price, rsi, action):
@@ -109,7 +107,7 @@ def request_approval(symbol, price, rsi, action):
     if not target:
         try:
             bot.send_message(CHANNEL_ID, short_msg)
-            active_signals.append({"symbol":data["symbol"],"action":data["action"],"entry":data["entry"],"sl":data["sl"],"tp1":data["tp1"],"tp2":data["tp2"],"tp3":data["tp3"],"tp1_hit":False,"tp2_hit":False,"tp3_hit":False})
+            active_signals.append({"symbol":data["symbol"],"action":data["action"],"entry":data["entry"],"sl":data["sl"],"tp1":data["tp1"]})
             save_active()
         except Exception as e: print(e)
         return
@@ -127,39 +125,23 @@ def check_tp_hits(current_price, symbol):
     for sig in active_signals[:]:
         if sig["symbol"]!=symbol: continue
         try:
-            s_sym=sig["symbol"]; s_act=sig["action"]; s_ent=sig["entry"]; s_tp1=sig["tp1"]; s_tp2=sig["tp2"]; s_tp3=sig["tp3"]; s_sl=sig["sl"]
+            s_sym=sig["symbol"]; s_act=sig["action"]; s_ent=sig["entry"]; s_tp1=sig["tp1"]; s_sl=sig["sl"]
             if s_act=="BUY":
-                if not sig.get("tp1_hit", False) and current_price>=s_tp1:
-                    sig["tp1_hit"]=True; save_active()
-                    try: bot.send_message(CHANNEL_ID, f"💸 TP1 HIT ✅\n{s_sym} BUY\n${round(s_ent,2)} -> ${round(s_tp1,2)}\n🔒 Move SL to BE\n@KEVINTRAILBLAZE")
-                    except: pass
-                if not sig.get("tp2_hit", False) and current_price>=s_tp2:
-                    sig["tp2_hit"]=True; save_active()
-                    try: bot.send_message(CHANNEL_ID, f"🏆 VICTORY 🏆\n{s_sym} TP1 + TP2 HIT\n@KEVINTRAILBLAZE")
-                    except: pass
-                if not sig.get("tp3_hit", False) and current_price>=s_tp3:
-                    try: bot.send_message(CHANNEL_ID, f"🤑 JACKPOT 🤑\n{s_sym} ALL TP HIT!\n${round(s_ent,2)} -> ${round(s_tp3,2)}\n@KEVINTRAILBLAZE")
+                if current_price>=s_tp1:
+                    try: bot.send_message(CHANNEL_ID, f"🏆 TP HIT ✅\n{s_sym} BUY +$10\n${round(s_ent,2)} -> ${round(s_tp1,2)}\n@KEVINTRAILBLAZE")
                     except: pass
                     to_remove.append(sig)
-                if current_price<=s_sl:
-                    try: bot.send_message(CHANNEL_ID, f"🛑 SL HIT {s_sym}")
+                elif current_price<=s_sl:
+                    try: bot.send_message(CHANNEL_ID, f"🛑 SL HIT {s_sym} -$10")
                     except: pass
                     to_remove.append(sig)
             else:
-                if not sig.get("tp1_hit", False) and current_price<=s_tp1:
-                    sig["tp1_hit"]=True; save_active()
-                    try: bot.send_message(CHANNEL_ID, f"💸 TP1 HIT ✅\n{s_sym} SELL\n${round(s_ent,2)} -> ${round(s_tp1,2)}\n@KEVINTRAILBLAZE")
-                    except: pass
-                if not sig.get("tp2_hit", False) and current_price<=s_tp2:
-                    sig["tp2_hit"]=True; save_active()
-                    try: bot.send_message(CHANNEL_ID, f"🏆 VICTORY 🏆\n{s_sym} TP1 + TP2 HIT\n@KEVINTRAILBLAZE")
-                    except: pass
-                if not sig.get("tp3_hit", False) and current_price<=s_tp3:
-                    try: bot.send_message(CHANNEL_ID, f"🤑 JACKPOT 🤑\n{s_sym} ALL TP HIT!\n@KEVINTRAILBLAZE")
+                if current_price<=s_tp1:
+                    try: bot.send_message(CHANNEL_ID, f"🏆 TP HIT ✅\n{s_sym} SELL +$10\n${round(s_ent,2)} -> ${round(s_tp1,2)}\n@KEVINTRAILBLAZE")
                     except: pass
                     to_remove.append(sig)
-                if current_price>=s_sl:
-                    try: bot.send_message(CHANNEL_ID, f"🛑 SL HIT {s_sym}")
+                elif current_price>=s_sl:
+                    try: bot.send_message(CHANNEL_ID, f"🛑 SL HIT {s_sym} -$10")
                     except: pass
                     to_remove.append(sig)
         except: continue
@@ -177,13 +159,12 @@ def signal_loop():
             r=calc_rsi(prices_history)
             check_tp_hits(g,"GOLD")
             print(f"GOLD ${g} RSI {r} Active {len(active_signals)}", flush=True)
-            # GOLD ONLY - No market close check, trade 24/7 since Gold now open
             if r<30 or r>70:
                 has_gold=False
                 for s in active_signals:
                     if s["symbol"]=="GOLD": has_gold=True
                 if not has_gold:
-                    if now-last_signal_time.get("GOLD",0)>3600: # 1 hour cooldown
+                    if now-last_signal_time.get("GOLD",0)>3600:
                         act="BUY" if r<30 else "SELL"
                         request_approval("GOLD",g,r,act)
                         last_signal_time["GOLD"]=now
@@ -202,7 +183,7 @@ def handle_callback(call):
                 bot.answer_callback_query(call.id,"Done"); return
             msg=sd.get("_msg")
             bot.send_message(CHANNEL_ID, msg)
-            active_signals.append({"symbol":sd["symbol"],"action":sd["action"],"entry":sd["entry"],"sl":sd["sl"],"tp1":sd["tp1"],"tp2":sd["tp2"],"tp3":sd["tp3"],"tp1_hit":False,"tp2_hit":False,"tp3_hit":False})
+            active_signals.append({"symbol":sd["symbol"],"action":sd["action"],"entry":sd["entry"],"sl":sd["sl"],"tp1":sd["tp1"]})
             save_active()
             bot.answer_callback_query(call.id,"✅ Sent!")
             bot.edit_message_text("✅ SENT to @KEVINTRAILBLAZE\n\n"+msg, call.message.chat.id, call.message.message_id)
@@ -236,8 +217,8 @@ def handle_start(message):
             bot.reply_to(message,t)
         return
     if txt.startswith('/signal') or txt.startswith('/price'):
-        bot.reply_to(message, f"🔍 GOLD ANALYSIS 👑\n\n🥇 GOLD: ${round(g,2)} RSI: {round(rg,1)} OPEN ✅ 24/7\n\n⏳ Waiting for RSI <30 BUY or >70 SELL\nScanning every 60s AUTO...\nActive: {len(active_signals)}\n\nChannel: @KEVINTRAILBLAZE"); return
-    bot.reply_to(message, f"👑 KEVIN GOLD ONLY V4 ✅\n\n🥇 GOLD: ${g} OPEN ✅\nRSI: {round(rg,1)}\n\nGOLD ONLY - BTC REMOVED\n\nCommands:\n/signal - Analyze gold\n/active - Check active\n/testsignal - Test\n/price /id\n\nBot AUTO sends itself every 60s!")
+        bot.reply_to(message, f"🔍 GOLD ANALYSIS 👑\n\n🥇 GOLD: ${round(g,2)} RSI: {round(rg,1)} OPEN ✅\n\n⏳ Waiting for RSI <30 BUY or >70 SELL\nTP $10 / SL $10 only\nScanning every 60s AUTO...\nActive: {len(active_signals)}\n\nChannel: @KEVINTRAILBLAZE"); return
+    bot.reply_to(message, f"👑 KEVIN GOLD ONLY V4 ✅\n\n🥇 GOLD: ${g} OPEN ✅\nRSI: {round(rg,1)}\n\nGOLD ONLY - TP $10 / SL $10\n\nCommands:\n/signal - Analyze gold\n/active - Check active\n/testsignal - Test\n/price /id\n\nBot AUTO sends itself every 60s!")
 
 threading.Thread(target=signal_loop,daemon=True).start()
 
