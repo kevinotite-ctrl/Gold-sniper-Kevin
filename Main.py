@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, requests, time, threading, telebot, datetime, json, random
+import os, requests, time, threading, telebot, datetime, json
 from telebot import types
 from flask import Flask, request
 
@@ -10,357 +10,245 @@ ADMIN_CHAT_ID=None
 
 bot=telebot.TeleBot(BOT_TOKEN)
 prices_history=[]
-active_signals=[]
-PRICE_FILE="price_history.json"
+last_signal_time={}
+pending_signals={}
 ACTIVE_FILE="active_signals.json"
-auto_scan_enabled=False
-last_signal_time=0
 
-def save_prices():
-    try:
-        with open(PRICE_FILE,"w") as f: json.dump(prices_history[-500:], f)
-    except: pass
 def save_active():
     try:
-        with open(ACTIVE_FILE,"w") as f: json.dump(active_signals,f)
+        with open(ACTIVE_FILE,"w") as f:
+            json.dump(active_signals,f)
     except: pass
-def load_data():
-    global prices_history, active_signals
-    try:
-        if os.path.exists(PRICE_FILE):
-            with open(PRICE_FILE,"r") as f: prices_history=json.load(f)
-    except: prices_history=[]
+
+def load_active():
+    global active_signals
     try:
         if os.path.exists(ACTIVE_FILE):
-            with open(ACTIVE_FILE,"r") as f: active_signals=json.load(f)
-    except: active_signals=[]
-load_data()
+            with open(ACTIVE_FILE,"r") as f:
+                active_signals=json.load(f)
+        else:
+            active_signals=[]
+    except:
+        active_signals=[]
+
+active_signals=[]
+load_active()
 
 app=Flask(__name__)
 @app.route('/')
-def home(): return "KEVIN V5.7 30MIN LIVE",200
-@app.route('/health')
-def health(): return "OK",200
-@app.route(f'/{BOT_TOKEN}',methods=['POST'])
+def home():
+    return f"KEVIN GOLD ONLY V4 LIVE | Active {len(active_signals)} | Gold Price ${get_gold()}"
+
+@app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
     try:
-        json_str=request.get_data().decode('UTF-8')
-        update=telebot.types.Update.de_json(json_str)
+        json_str = request.get_data().decode('UTF-8')
+        update = telebot.types.Update.de_json(json_str)
         bot.process_new_updates([update])
     except: pass
-    return "OK",200
+    return "OK", 200
+
 @app.route('/setwebhook')
 def set_webhook():
     try:
-        bot.remove_webhook(); time.sleep(1)
-        ext=os.getenv("RENDER_EXTERNAL_URL")
-        if ext:
-            url=f"{ext}/{BOT_TOKEN}"
+        bot.remove_webhook()
+        time.sleep(1)
+        ext_url = os.getenv("RENDER_EXTERNAL_URL")
+        if ext_url:
+            url = f"{ext_url}/{BOT_TOKEN}"
             bot.set_webhook(url=url)
-            return f"Webhook {url}"
+            return f"Webhook set to {url}"
         return "No URL"
-    except Exception as e: return f"Error {e}"
+    except Exception as e:
+        return f"Error {e}"
 
 def get_gold():
-    try: return float(requests.get("https://api.gold-api.com/price/XAU",timeout=10).json()["price"])
-    except: return 0
-def ema(prices,p):
-    if len(prices)<p: return None
-    k=2/(p+1); v=sum(prices[:p])/p
-    for x in prices[p:]: v=x*k+v*(1-k)
-    return v
-def calc_rsi(prices,p=14):
-    if len(prices)<p+1: return 50.0
-    g=[];l=[]
-    for i in range(1,len(prices)):
-        d=prices[i]-prices[i-1]
-        g.append(d if d>0 else 0); l.append(abs(d) if d<0 else 0)
-    if len(g)<p: return 50.0
-    ag=sum(g[-p:])/p; al=sum(l[-p:])/p
-    if al==0: return 65.0
-    return 100-(100/(1+ag/al))
-def calc_atr(prices,p=14):
-    if len(prices)<p+1: return 6.0
-    tr=[abs(prices[i]-prices[i-1]) for i in range(1,len(prices))]
-    return sum(tr[-p:])/p
-def calc_adx(prices):
-    if len(prices)<50: return 20.0
-    e20=ema(prices,20); e50=ema(prices,50)
-    if not e20 or not e50: return 20.0
-    atr=calc_atr(prices,14)
-    if atr==0: return 20.0
-    return min(60, abs(e20-e50)/atr*12+12)
-
-def analyze_30min_frame():
-    """Analyze last 30 mins to know market direction - MAIN LOGIC YOU ASKED"""
-    if len(prices_history)<30:
-        return None, "Not enough 30min data"
-
-    last_30 = prices_history[-30:] # Previous 30 mins
-    last_15 = prices_history[-15:] # Recent 15 mins
-    current = last_30[-1]
-    start_30 = last_30[0]
-    start_15 = last_15[0]
-
-    # 1. 30MIN TREND
-    change_30 = current - start_30
-    change_15 = current - start_15
-    pct_30 = (change_30 / start_30 * 100) if start_30 else 0
-
-    # 2. EMA ANALYSIS ON 30MIN FRAME
-    e20 = ema(prices_history,20) or current
-    e50 = ema(prices_history,50) or current
-    e200 = ema(prices_history,200) or current
-
-    # 3. HIGH/LOW OF LAST 30 MIN
-    high_30 = max(last_30)
-    low_30 = min(last_30)
-    range_30 = high_30 - low_30
-
-    # 4. RSI/ADX ON 30MIN FRAME
-    rsi = calc_rsi(prices_history,14)
-    adx = calc_adx(prices_history)
-    atr = calc_atr(prices_history,14)
-
-    # 5. DETERMINE LEGIT DIRECTION
-    # Strong up if: price above all EMAs, 30min change positive, recent 15min also up, ADX strong
-    legit_buy = False
-    legit_sell = False
-    reason = ""
-
-    if current > e20 > e50 > e200 and change_30 > 2 and change_15 > 0 and rsi >=48 and rsi <=60 and adx >=26 and range_30 > 1.5:
-        legit_buy = True
-        reason = f"✅ 30MIN UPTREND: +${round(change_30,2)} in 30min | Price ${round(start_30,2)}→${round(current,2)} | Above EMA20/50/200 | RSI {round(rsi,1)} Safe | ADX {round(adx,1)} Strong | Range ${round(range_30,2)}"
-
-    elif current < e20 < e50 < e200 and change_30 < -2 and change_15 < 0 and rsi >=40 and rsi <=54 and adx >=26 and range_30 > 1.5:
-        legit_sell = True
-        reason = f"✅ 30MIN DOWNTREND: -${round(abs(change_30),2)} in 30min | Price ${round(start_30,2)}→${round(current,2)} | Below EMA20/50/200 | RSI {round(rsi,1)} Safe | ADX {round(adx,1)} Strong | Range ${round(range_30,2)}"
-
-    # Confidence based on 30min frame strength
-    conf = 55
-    if abs(change_30) > 5: conf += 15 # Strong 30min move
-    if abs(change_15) > 2: conf += 10 # Recent momentum
-    if adx >= 30: conf += 10
-    if adx >= 40: conf += 8
-    if 50 <= rsi <= 56: conf += 8
-    if range_30 > 4: conf += 5 # Good volatility
-    if range_30 < 1.0: conf -= 20 # Choppy, avoid
-
-    conf = min(96, max(40, conf + random.randint(0,3)))
-
-    analysis = {
-        "current": current,
-        "start_30": start_30,
-        "change_30": change_30,
-        "change_15": change_15,
-        "high_30": high_30,
-        "low_30": low_30,
-        "range_30": range_30,
-        "e20": e20, "e50": e50, "e200": e200,
-        "rsi": rsi, "adx": adx, "atr": atr,
-        "conf": conf,
-        "reason": reason,
-        "legit_buy": legit_buy,
-        "legit_sell": legit_sell
-    }
-    return analysis, None
-
-def build_msg_from_30min(analysis):
-    cur = analysis["current"]
-    rsi = analysis["rsi"]; adx = analysis["adx"]; conf = analysis["conf"]; reason = analysis["reason"]
-    change_30 = analysis["change_30"]
-
-    if analysis["legit_buy"]:
-        action = "BUY"
-        sl = cur - 10; tp = cur + 10
-    else:
-        action = "SELL"
-        sl = cur + 10; tp = cur - 10
-
-    conf_emoji = "🔥🔥🔥 HIGH" if conf>=85 else "🔥🔥 VERY GOOD" if conf>=78 else "⚡ GOOD"
-    ea = "🟢 BUY" if action=="BUY" else "🔴 SELL"
-    tr = "📈 30MIN UPTREND CONFIRMED" if action=="BUY" else "📉 30MIN DOWNTREND CONFIRMED"
-
-    msg = f"""👑 KEVIN TRAILBLAZE 30MIN FRAME 👑
-{ea} XAUUSD GOLD - LEGIT ENTRY
-
-{tr}
-{reason}
-
-📊 30MIN FRAME ANALYSIS
-⏰ Last 30min: ${round(analysis['start_30'],2)} → ${round(cur,2)} ({'+' if change_30>0 else ''}{round(change_30,2)})
-📈 High: ${round(analysis['high_30'],2)} | Low: ${round(analysis['low_30'],2)} | Range: ${round(analysis['range_30'],2)}
-📊 RSI: {round(rsi,1)} | ADX: {round(adx,1)} | ATR: {round(analysis['atr'],2)}
-
-💠 Entry: ${round(cur,2)}
-🛡️ SL: ${round(sl,2)} (-$10)
-🎯 TP: ${round(tp,2)} (+$10)
-
-🎯 Confidence: {conf}% {conf_emoji}
-✅ 30Min Legit Entry - Avoids SL
-🔗 @KEVINTRAILBLAZE
-⏰ {datetime.datetime.now().strftime('%H:%M')} WAT"""
-
-    data = {"symbol":"GOLD","action":action,"entry":cur,"sl":sl,"tp1":tp,"tp2":tp,"tp3":tp}
-    return msg,data,conf
-
-def send_alert(text):
-    try: bot.send_message(CHANNEL_ID,text)
-    except: pass
     try:
-        t=None
-        if ADMIN_ID:
-            try: t=int(ADMIN_ID)
-            except: pass
-        if not t: t=ADMIN_CHAT_ID
-        if t: bot.send_message(t,text)
-    except: pass
+        r=requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()
+        return float(r["price"])
+    except:
+        return 4195.60
 
-def check_tp_hits(cur):
-    rm=[]
-    for sig in active_signals[:]:
+def calc_rsi(prices, period=14):
+    if len(prices) < period+1:
+        return 50.0
+    gains=[]; losses=[]
+    for i in range(1, len(prices)):
+        diff=prices[i]-prices[i-1]
+        if diff>0:
+            gains.append(diff); losses.append(0)
+        else:
+            gains.append(0); losses.append(abs(diff))
+    if len(gains)<period:
+        return 50.0
+    avg_gain=sum(gains[-period:])/period
+    avg_loss=sum(losses[-period:])/period
+    if avg_loss==0: return 70.0
+    if avg_gain==0: return 30.0
+    rs=avg_gain/avg_loss
+    return 100-(100/(1+rs))
+
+def build_short_msg(symbol, price, rsi, action):
+    sl=price-10 if action=="BUY" else price+10
+    tp1=price+20 if action=="BUY" else price-20
+    tp2=price+40 if action=="BUY" else price-40
+    tp3=price+60 if action=="BUY" else price-60
+    emoji="🟢 BUY" if action=="BUY" else "🔴 SELL"
+    msg="👑 KEVIN TRAILBLAZE 👑\n"+emoji+" XAUUSD GOLD\n\n💠 Entry: $"+str(round(price,2))+"\n🛡️ SL: $"+str(round(sl,2))+"\n\n🎯 TP1: $"+str(round(tp1,2))+"\n🎯 TP2: $"+str(round(tp2,2))+"\n🎯 TP3: $"+str(round(tp3,2))+"\n\n📊 RSI: "+str(round(rsi,1))+"\n🔗 @KEVINTRAILBLAZE"
+    data={"symbol":symbol,"action":action,"entry":price,"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3}
+    return msg,data
+
+def request_approval(symbol, price, rsi, action):
+    global ADMIN_CHAT_ID
+    target=None
+    if ADMIN_ID:
+        try: target=int(ADMIN_ID)
+        except: pass
+    if not target: target=ADMIN_CHAT_ID
+    short_msg,data=build_short_msg(symbol, price, rsi, action)
+    if not target:
         try:
-            act=sig["action"]; ent=sig["entry"]; sl=sig["sl"]; tp=sig["tp1"]
-            if act=="BUY":
-                if cur>=tp: send_alert(f"💸 TP HIT ✅\n\n🟢 BUY GOLD\n💠 ${round(ent,2)} → ${round(tp,2)}\n💰 +$10\n@KEVINTRAILBLAZE"); rm.append(sig)
-                elif cur<=sl: send_alert(f"🛑 SL HIT 🛑\n🟢 BUY ${round(ent,2)} SL ${round(sl,2)}\n📉 -$10"); rm.append(sig)
-            else:
-                if cur<=tp: send_alert(f"💸 TP HIT ✅\n\n🔴 SELL GOLD\n💠 ${round(ent,2)} → ${round(tp,2)}\n💰 +$10\n@KEVINTRAILBLAZE"); rm.append(sig)
-                elif cur>=sl: send_alert(f"🛑 SL HIT 🛑\n🔴 SELL ${round(ent,2)} SL ${round(sl,2)}\n📉 -$10"); rm.append(sig)
-        except: continue
-    for r in rm:
-        if r in active_signals: active_signals.remove(r)
-    if rm: save_active()
+            bot.send_message(CHANNEL_ID, short_msg)
+            active_signals.append({"symbol":data["symbol"],"action":data["action"],"entry":data["entry"],"sl":data["sl"],"tp1":data["tp1"],"tp2":data["tp2"],"tp3":data["tp3"],"tp1_hit":False,"tp2_hit":False,"tp3_hit":False})
+            save_active()
+        except Exception as e: print(e)
+        return
+    sig_id=symbol+"_"+str(int(time.time()))
+    pending_signals[sig_id]=data
+    pending_signals[sig_id]["_msg"]=short_msg
+    markup=types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("✅ SEND", callback_data="approve_"+sig_id), types.InlineKeyboardButton("❌ REJECT", callback_data="reject_"+sig_id))
+    try:
+        bot.send_message(target, "🔔 NEW GOLD SIGNAL 👑\n\n"+short_msg+"\n\nSend to channel?", reply_markup=markup)
+    except Exception as e: print(e)
 
-def auto_scan_loop():
-    global last_signal_time
+def check_tp_hits(current_price, symbol):
+    to_remove=[]
+    for sig in active_signals[:]:
+        if sig["symbol"]!=symbol: continue
+        try:
+            s_sym=sig["symbol"]; s_act=sig["action"]; s_ent=sig["entry"]; s_tp1=sig["tp1"]; s_tp2=sig["tp2"]; s_tp3=sig["tp3"]; s_sl=sig["sl"]
+            if s_act=="BUY":
+                if not sig.get("tp1_hit", False) and current_price>=s_tp1:
+                    sig["tp1_hit"]=True; save_active()
+                    try: bot.send_message(CHANNEL_ID, f"💸 TP1 HIT ✅\n{s_sym} BUY\n${round(s_ent,2)} -> ${round(s_tp1,2)}\n🔒 Move SL to BE\n@KEVINTRAILBLAZE")
+                    except: pass
+                if not sig.get("tp2_hit", False) and current_price>=s_tp2:
+                    sig["tp2_hit"]=True; save_active()
+                    try: bot.send_message(CHANNEL_ID, f"🏆 VICTORY 🏆\n{s_sym} TP1 + TP2 HIT\n@KEVINTRAILBLAZE")
+                    except: pass
+                if not sig.get("tp3_hit", False) and current_price>=s_tp3:
+                    try: bot.send_message(CHANNEL_ID, f"🤑 JACKPOT 🤑\n{s_sym} ALL TP HIT!\n${round(s_ent,2)} -> ${round(s_tp3,2)}\n@KEVINTRAILBLAZE")
+                    except: pass
+                    to_remove.append(sig)
+                if current_price<=s_sl:
+                    try: bot.send_message(CHANNEL_ID, f"🛑 SL HIT {s_sym}")
+                    except: pass
+                    to_remove.append(sig)
+            else:
+                if not sig.get("tp1_hit", False) and current_price<=s_tp1:
+                    sig["tp1_hit"]=True; save_active()
+                    try: bot.send_message(CHANNEL_ID, f"💸 TP1 HIT ✅\n{s_sym} SELL\n${round(s_ent,2)} -> ${round(s_tp1,2)}\n@KEVINTRAILBLAZE")
+                    except: pass
+                if not sig.get("tp2_hit", False) and current_price<=s_tp2:
+                    sig["tp2_hit"]=True; save_active()
+                    try: bot.send_message(CHANNEL_ID, f"🏆 VICTORY 🏆\n{s_sym} TP1 + TP2 HIT\n@KEVINTRAILBLAZE")
+                    except: pass
+                if not sig.get("tp3_hit", False) and current_price<=s_tp3:
+                    try: bot.send_message(CHANNEL_ID, f"🤑 JACKPOT 🤑\n{s_sym} ALL TP HIT!\n@KEVINTRAILBLAZE")
+                    except: pass
+                    to_remove.append(sig)
+                if current_price>=s_sl:
+                    try: bot.send_message(CHANNEL_ID, f"🛑 SL HIT {s_sym}")
+                    except: pass
+                    to_remove.append(sig)
+        except: continue
+    for r in to_remove:
+        if r in active_signals: active_signals.remove(r)
+    if to_remove: save_active()
+
+def signal_loop():
     while True:
         try:
+            now=time.time()
             g=get_gold()
-            if g!=0:
-                prices_history.append(g)
-                if len(prices_history)>500: prices_history.pop(0)
-                save_prices()
-                check_tp_hits(g)
-
-            if auto_scan_enabled and time.time()-last_signal_time>900: # 15 mins
-                analysis, err = analyze_30min_frame()
-                if analysis and (analysis["legit_buy"] or analysis["legit_sell"]) and analysis["conf"]>=72:
-                    msg,data,conf=build_msg_from_30min(analysis)
-                    if ADMIN_CHAT_ID: bot.send_message(ADMIN_CHAT_ID,msg)
-                    bot.send_message(CHANNEL_ID,msg)
-                    active_signals.append(data); save_active()
-                    last_signal_time=time.time()
-        except Exception as e: print(f"auto err {e}")
+            prices_history.append(g)
+            if len(prices_history)>100: prices_history.pop(0)
+            r=calc_rsi(prices_history)
+            check_tp_hits(g,"GOLD")
+            print(f"GOLD ${g} RSI {r} Active {len(active_signals)}", flush=True)
+            # GOLD ONLY - No market close check, trade 24/7 since Gold now open
+            if r<30 or r>70:
+                has_gold=False
+                for s in active_signals:
+                    if s["symbol"]=="GOLD": has_gold=True
+                if not has_gold:
+                    if now-last_signal_time.get("GOLD",0)>3600: # 1 hour cooldown
+                        act="BUY" if r<30 else "SELL"
+                        request_approval("GOLD",g,r,act)
+                        last_signal_time["GOLD"]=now
+        except Exception as e:
+            print("loop error", e)
         time.sleep(60)
 
-pending_signals={}
-@bot.message_handler(commands=['start','signal','active','stop','price','id'])
-def handle_start(message):
-    global ADMIN_CHAT_ID, auto_scan_enabled, last_signal_time
-    if message.chat.type=="private": ADMIN_CHAT_ID=message.chat.id
-    txt=message.text.lower()
-    g=get_gold()
-
-    if '/id' in txt: bot.reply_to(message,f"🆔 {message.from_user.id}"); return
-    if '/active' in txt:
-        if not active_signals: bot.reply_to(message,"📭 No active")
-        else:
-            t=f"📊 ACTIVE ({len(active_signals)}):\n"
-            for s in active_signals: t+=f"• {s['action']} ${round(s['entry'],2)}\n"
-            bot.reply_to(message,t)
-        return
-    if '/stop' in txt:
-        auto_scan_enabled=False; bot.reply_to(message,"🛑 Auto Scan STOPPED"); return
-    if '/price' in txt: bot.reply_to(message,f"🥇 GOLD: ${round(g,2) if g else 0}"); return
-
-    if '/signal' in txt:
-        bot.send_message(message.chat.id,"🔍 Scanning 30min timeframe for legit entry...")
-        analysis, err = analyze_30min_frame()
-        if err or not analysis:
-            bot.send_message(message.chat.id,f"⏳ Collecting 30min data... {len(prices_history)}/30\nTry /signal again in {30-len(prices_history)} mins")
-            return
-        if not (analysis["legit_buy"] or analysis["legit_sell"]):
-            bot.send_message(message.chat.id,f"""⚠️ NO LEGIT ENTRY - 30MIN ANALYSIS ⚠️
-
-Gold Now: ${round(analysis['current'],2)}
-30Min Change: {round(analysis['change_30'],2)}
-RSI: {round(analysis['rsi'],1)} | ADX: {round(analysis['adx'],1)}
-EMA20: ${round(analysis['e20'],2)} | EMA50: ${round(analysis['e50'],2)}
-
-❌ Market choppy in last 30min - No clear direction
-✅ Skipped to avoid SL
-
-Try again in 10 mins
-@KEVINTRAILBLAZE""")
-            return
-        msg,data,conf=build_msg_from_30min(analysis)
-        bot.send_message(message.chat.id,msg)
-        markup=types.InlineKeyboardMarkup()
-        sig_id="GOLD_"+str(int(time.time()))
-        pending_signals[sig_id]={**data,"_msg":msg}
-        markup.add(types.InlineKeyboardButton(f"✅ SEND {conf}% TO CHANNEL",callback_data="approve_"+sig_id),types.InlineKeyboardButton("❌ CANCEL",callback_data="reject_"+sig_id))
-        bot.send_message(message.chat.id,f"Send this 30min legit {conf}% signal?",reply_markup=markup)
-        return
-
-    if '/start' in txt:
-        auto_scan_enabled=True
-        last_signal_time=time.time()-800
-        # IMMEDIATE SCAN MESSAGE YOU WANTED
-        if len(prices_history)<30:
-            bot.reply_to(message,f"""🔍 SCANNING FOR LEGIT ENTRY...
-
-⏳ Analyzing previous 30min timeframe...
-📊 Current data: {len(prices_history)}/30 mins collected
-🥇 Gold: ${round(g,2) if g else 0}
-
-I need 30 mins of data to know where market is heading.
-Collecting now... will auto-start sending legit entries soon.
-
-🤖 Auto Scan: ON ✅
-I will scan non-stop every 15 mins using 30min frame.
-
-@KEVINTRAILBLAZE""")
-        else:
-            analysis,_=analyze_30min_frame()
-            bot.reply_to(message,f"""🔍 SCANNING FOR LEGIT ENTRY...
-
-📊 Analyzing previous 30min timeframe...
-🥇 Gold: ${round(g,2) if g else 0} | Data: {len(prices_history)} mins
-📈 30min Change: {round(analysis['change_30'],2) if analysis else 0}
-📊 RSI: {round(analysis['rsi'],1) if analysis else 0} | ADX: {round(analysis['adx'],1) if analysis else 0}
-
-✅ Scanning 30min frame to know where market is heading
-✅ Looking for legit entry to avoid SL
-🤖 Auto Scan: ON - Non-stop ✅
-
-I will send signals automatically when 30min trend is clear.
-
-Commands:
-📡 /signal - Check 30min now
-📊 /active - Active trades
-🛑 /stop - Stop auto
-""")
-        return
-
-@bot.callback_query_handler(func=lambda c: True)
+@bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     try:
         d=call.data
         if d.startswith("approve_"):
-            sid=d.replace("approve_",""); sd=pending_signals.pop(sid,None)
-            if not sd: return
-            bot.send_message(CHANNEL_ID,sd.get("_msg")); active_signals.append({k:v for k,v in sd.items() if not k.startswith("_")}); save_active()
-            bot.answer_callback_query(call.id,"✅ Sent!"); bot.edit_message_text("✅ SENT",call.message.chat.id,call.message.message_id)
+            sid=d.replace("approve_","")
+            sd=pending_signals.pop(sid,None)
+            if not sd:
+                bot.answer_callback_query(call.id,"Done"); return
+            msg=sd.get("_msg")
+            bot.send_message(CHANNEL_ID, msg)
+            active_signals.append({"symbol":sd["symbol"],"action":sd["action"],"entry":sd["entry"],"sl":sd["sl"],"tp1":sd["tp1"],"tp2":sd["tp2"],"tp3":sd["tp3"],"tp1_hit":False,"tp2_hit":False,"tp3_hit":False})
+            save_active()
+            bot.answer_callback_query(call.id,"✅ Sent!")
+            bot.edit_message_text("✅ SENT to @KEVINTRAILBLAZE\n\n"+msg, call.message.chat.id, call.message.message_id)
         elif d.startswith("reject_"):
-            pending_signals.pop(d.replace("reject_",""),None); bot.edit_message_text("❌ Cancelled",call.message.chat.id,call.message.message_id)
-    except: pass
+            pending_signals.pop(d.replace("reject_",""),None)
+            bot.answer_callback_query(call.id,"❌ Rejected")
+            bot.edit_message_text("❌ Rejected", call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        print(e)
 
-threading.Thread(target=auto_scan_loop,daemon=True).start()
+@bot.message_handler(commands=['start','price','active','signal','id','testsignal'])
+def handle_start(message):
+    global ADMIN_CHAT_ID
+    if message.chat.type=="private":
+        ADMIN_CHAT_ID=message.chat.id
+    g=get_gold()
+    rg=calc_rsi(prices_history) if len(prices_history)>2 else 50.0
+    txt=message.text
+    if txt.startswith('/id'):
+        bot.reply_to(message, "Your ID: "+str(message.from_user.id)); return
+    if txt.startswith('/testsignal'):
+        bot.reply_to(message, "🔍 Creating TEST GOLD signal... check DM!")
+        request_approval("GOLD", g, 28.5, "BUY"); return
+    if txt.startswith('/active'):
+        if len(active_signals)==0:
+            bot.reply_to(message, "📭 No active GOLD signals - Waiting for RSI <30 or >70\nBot analyzing every 60s... Gold is OPEN ✅")
+        else:
+            t="📊 ACTIVE GOLD ("+str(len(active_signals))+"):\n"
+            for s in active_signals:
+                t+=s["symbol"]+" "+s["action"]+" Entry $"+str(round(s["entry"],2))+"\n"
+            bot.reply_to(message,t)
+        return
+    if txt.startswith('/signal') or txt.startswith('/price'):
+        bot.reply_to(message, f"🔍 GOLD ANALYSIS 👑\n\n🥇 GOLD: ${round(g,2)} RSI: {round(rg,1)} OPEN ✅ 24/7\n\n⏳ Waiting for RSI <30 BUY or >70 SELL\nScanning every 60s AUTO...\nActive: {len(active_signals)}\n\nChannel: @KEVINTRAILBLAZE"); return
+    bot.reply_to(message, f"👑 KEVIN GOLD ONLY V4 ✅\n\n🥇 GOLD: ${g} OPEN ✅\nRSI: {round(rg,1)}\n\nGOLD ONLY - BTC REMOVED\n\nCommands:\n/signal - Analyze gold\n/active - Check active\n/testsignal - Test\n/price /id\n\nBot AUTO sends itself every 60s!")
+
+threading.Thread(target=signal_loop,daemon=True).start()
+
 if __name__=="__main__":
     try:
-        bot.remove_webhook(); time.sleep(1)
-        ext=os.getenv("RENDER_EXTERNAL_URL")
-        if ext: bot.set_webhook(url=f"{ext}/{BOT_TOKEN}")
-    except: pass
+        bot.remove_webhook()
+        time.sleep(1)
+        ext_url = os.getenv("RENDER_EXTERNAL_URL")
+        if ext_url:
+            bot.set_webhook(url=f"{ext_url}/{BOT_TOKEN}")
+            print(f"Webhook set {ext_url}", flush=True)
+    except Exception as e:
+        print(f"Webhook err {e}", flush=True)
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",10000)))
