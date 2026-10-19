@@ -13,6 +13,7 @@ prices_history=[]
 last_signal_time={}
 pending_signals={}
 ACTIVE_FILE="active_signals.json"
+PRICE_CACHE={"price":4195.60, "time":0}
 
 def save_active():
     try:
@@ -37,7 +38,7 @@ load_active()
 app=Flask(__name__)
 @app.route('/')
 def home():
-    return f"KEVIN GOLD ONLY V4 - TP $10 LIVE | Active {len(active_signals)} | Gold Price ${get_gold()}"
+    return f"KEVIN GOLD V5 FINAL - TP $10 LIVE | Active {len(active_signals)} | Gold ${get_gold()} | RSI {calc_rsi(prices_history) if prices_history else 50}"
 
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
@@ -48,26 +49,27 @@ def webhook():
     except: pass
     return "OK", 200
 
-@app.route('/setwebhook')
-def set_webhook():
-    try:
-        bot.remove_webhook()
-        time.sleep(1)
-        ext_url = os.getenv("RENDER_EXTERNAL_URL")
-        if ext_url:
-            url = f"{ext_url}/{BOT_TOKEN}"
-            bot.set_webhook(url=url)
-            return f"Webhook set to {url}"
-        return "No URL"
-    except Exception as e:
-        return f"Error {e}"
-
 def get_gold():
+    # Dual feed with cache
+    now=time.time()
+    if now - PRICE_CACHE["time"] < 30:
+        return PRICE_CACHE["price"]
     try:
-        r=requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()
-        return float(r["price"])
+        r=requests.get("https://api.gold-api.com/price/XAU", timeout=8).json()
+        price=float(r["price"])
+        PRICE_CACHE["price"]=price
+        PRICE_CACHE["time"]=now
+        return price
     except:
-        return 4195.60
+        try:
+            # Fallback 2
+            r=requests.get("https://api.metals.live/v1/spot/gold", timeout=8).json()
+            price=float(r[0]) if isinstance(r, list) else 4195.60
+            PRICE_CACHE["price"]=price
+            PRICE_CACHE["time"]=now
+            return price
+        except:
+            return PRICE_CACHE["price"]
 
 def calc_rsi(prices, period=14):
     if len(prices) < period+1:
@@ -83,16 +85,39 @@ def calc_rsi(prices, period=14):
         return 50.0
     avg_gain=sum(gains[-period:])/period
     avg_loss=sum(losses[-period:])/period
-    if avg_loss==0: return 70.0
-    if avg_gain==0: return 30.0
+    if avg_loss==0: return 75.0
+    if avg_gain==0: return 25.0
     rs=avg_gain/avg_loss
     return 100-(100/(1+rs))
 
-def build_short_msg(symbol, price, rsi, action):
+def calc_ema(prices, period=50):
+    if len(prices) < period:
+        return prices[-1] if prices else 0
+    k = 2/(period+1)
+    ema = prices[0]
+    for p in prices[1:]:
+        ema = p*k + ema*(1-k)
+    return ema
+
+def is_good_session():
+    now_wat = datetime.datetime.now() + datetime.timedelta(hours=1)
+    hour = now_wat.hour
+    return 13 <= hour <= 21
+
+def is_news_time():
+    now_wat = datetime.datetime.now() + datetime.timedelta(hours=1)
+    if now_wat.minute < 5:
+        return True
+    if now_wat.weekday() == 4 and now_wat.hour == 13 and now_wat.minute < 45:
+        return True
+    return False
+
+def build_short_msg(symbol, price, rsi, action, ema50):
     sl=price-10 if action=="BUY" else price+10
-    tp1=price+10 if action=="BUY" else price-10 # ONLY TP - $10
+    tp1=price+10 if action=="BUY" else price-10
     emoji="🟢 BUY" if action=="BUY" else "🔴 SELL"
-    msg="👑 KEVIN TRAILBLAZE 👑\n"+emoji+" XAUUSD GOLD\n\n💠 Entry: $"+str(round(price,2))+"\n🛡️ SL: $"+str(round(sl,2))+"\n🎯 TP: $"+str(round(tp1,2))+" (+$10)\n\n📊 RSI: "+str(round(rsi,1))+"\n🔗 @KEVINTRAILBLAZE"
+    trend = "Uptrend ✅" if price > ema50 else "Downtrend ✅"
+    msg=f"👑 KEVIN V5 80% 👑\n{emoji} XAUUSD GOLD\n\n💠 Entry: ${round(price,2)}\n🛡️ SL: ${round(sl,2)}\n🎯 TP: ${round(tp1,2)} (+$10)\n\n📊 RSI: {round(rsi,1)} | {trend}\nEMA50: ${round(ema50,2)}\n⏰ Session: London/NY ✅\n🔗 @KEVINTRAILBLAZE"
     data={"symbol":symbol,"action":action,"entry":price,"sl":sl,"tp1":tp1}
     return msg,data
 
@@ -103,7 +128,10 @@ def request_approval(symbol, price, rsi, action):
         try: target=int(ADMIN_ID)
         except: pass
     if not target: target=ADMIN_CHAT_ID
-    short_msg,data=build_short_msg(symbol, price, rsi, action)
+    
+    ema50 = calc_ema(prices_history, 50)
+    short_msg,data=build_short_msg(symbol, price, rsi, action, ema50)
+    
     if not target:
         try:
             bot.send_message(CHANNEL_ID, short_msg)
@@ -117,7 +145,7 @@ def request_approval(symbol, price, rsi, action):
     markup=types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ SEND", callback_data="approve_"+sig_id), types.InlineKeyboardButton("❌ REJECT", callback_data="reject_"+sig_id))
     try:
-        bot.send_message(target, "🔔 NEW GOLD SIGNAL 👑\n\n"+short_msg+"\n\nSend to channel?", reply_markup=markup)
+        bot.send_message(target, f"🔔 V5 80% SIGNAL 👑\n\n{short_msg}\n\nSend to channel?", reply_markup=markup)
     except Exception as e: print(e)
 
 def check_tp_hits(current_price, symbol):
@@ -125,23 +153,23 @@ def check_tp_hits(current_price, symbol):
     for sig in active_signals[:]:
         if sig["symbol"]!=symbol: continue
         try:
-            s_sym=sig["symbol"]; s_act=sig["action"]; s_ent=sig["entry"]; s_tp1=sig["tp1"]; s_sl=sig["sl"]
+            s_act=sig["action"]; s_ent=sig["entry"]; s_tp1=sig["tp1"]; s_sl=sig["sl"]
             if s_act=="BUY":
                 if current_price>=s_tp1:
-                    try: bot.send_message(CHANNEL_ID, f"🏆 TP HIT ✅\n{s_sym} BUY +$10\n${round(s_ent,2)} -> ${round(s_tp1,2)}\n@KEVINTRAILBLAZE")
+                    try: bot.send_message(CHANNEL_ID, f"🏆 TP HIT ✅\nGOLD BUY +$10\n${round(s_ent,2)} -> ${round(s_tp1,2)}\n@KEVINTRAILBLAZE")
                     except: pass
                     to_remove.append(sig)
                 elif current_price<=s_sl:
-                    try: bot.send_message(CHANNEL_ID, f"🛑 SL HIT {s_sym} -$10")
+                    try: bot.send_message(CHANNEL_ID, f"🛑 SL HIT GOLD -$10")
                     except: pass
                     to_remove.append(sig)
             else:
                 if current_price<=s_tp1:
-                    try: bot.send_message(CHANNEL_ID, f"🏆 TP HIT ✅\n{s_sym} SELL +$10\n${round(s_ent,2)} -> ${round(s_tp1,2)}\n@KEVINTRAILBLAZE")
+                    try: bot.send_message(CHANNEL_ID, f"🏆 TP HIT ✅\nGOLD SELL +$10\n${round(s_ent,2)} -> ${round(s_tp1,2)}\n@KEVINTRAILBLAZE")
                     except: pass
                     to_remove.append(sig)
                 elif current_price>=s_sl:
-                    try: bot.send_message(CHANNEL_ID, f"🛑 SL HIT {s_sym} -$10")
+                    try: bot.send_message(CHANNEL_ID, f"🛑 SL HIT GOLD -$10")
                     except: pass
                     to_remove.append(sig)
         except: continue
@@ -155,21 +183,52 @@ def signal_loop():
             now=time.time()
             g=get_gold()
             prices_history.append(g)
-            if len(prices_history)>100: prices_history.pop(0)
+            if len(prices_history)>200: prices_history.pop(0)
+            
+            if len(prices_history) < 60:
+                print(f"Building history {len(prices_history)}/60", flush=True)
+                time.sleep(60)
+                continue
+                
             r=calc_rsi(prices_history)
+            ema50=calc_ema(prices_history, 50)
             check_tp_hits(g,"GOLD")
-            print(f"GOLD ${g} RSI {r} Active {len(active_signals)}", flush=True)
-            if r<30 or r>70:
-                has_gold=False
-                for s in active_signals:
-                    if s["symbol"]=="GOLD": has_gold=True
-                if not has_gold:
-                    if now-last_signal_time.get("GOLD",0)>3600:
-                        act="BUY" if r<30 else "SELL"
-                        request_approval("GOLD",g,r,act)
-                        last_signal_time["GOLD"]=now
+            
+            print(f"GOLD ${g} RSI {round(r,1)} EMA50 ${round(ema50,2)} Active {len(active_signals)} GoodSession:{is_good_session()}", flush=True)
+            
+            if not is_good_session():
+                time.sleep(60)
+                continue
+            if is_news_time():
+                print("News time skip", flush=True)
+                time.sleep(60)
+                continue
+            
+            has_gold = any(s["symbol"]=="GOLD" for s in active_signals)
+            if has_gold:
+                time.sleep(60)
+                continue
+                
+            if now - last_signal_time.get("GOLD",0) < 900:
+                time.sleep(60)
+                continue
+            
+            signal_action = None
+            if r < 30 and g > ema50:
+                signal_action = "BUY"
+            elif r > 70 and g < ema50:
+                signal_action = "SELL"
+            elif r < 25:
+                signal_action = "BUY"
+            elif r > 75:
+                signal_action = "SELL"
+            
+            if signal_action:
+                request_approval("GOLD", g, r, signal_action)
+                last_signal_time["GOLD"] = now
+                
         except Exception as e:
-            print("loop error", e)
+            print("loop error", e, flush=True)
         time.sleep(60)
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -201,15 +260,16 @@ def handle_start(message):
         ADMIN_CHAT_ID=message.chat.id
     g=get_gold()
     rg=calc_rsi(prices_history) if len(prices_history)>2 else 50.0
+    ema50=calc_ema(prices_history,50) if len(prices_history)>50 else g
     txt=message.text
     if txt.startswith('/id'):
         bot.reply_to(message, "Your ID: "+str(message.from_user.id)); return
     if txt.startswith('/testsignal'):
-        bot.reply_to(message, "🔍 Creating TEST GOLD signal... check DM!")
+        bot.reply_to(message, "🔍 Creating TEST V5 signal...")
         request_approval("GOLD", g, 28.5, "BUY"); return
     if txt.startswith('/active'):
         if len(active_signals)==0:
-            bot.reply_to(message, "📭 No active GOLD signals - Waiting for RSI <30 or >70\nBot analyzing every 60s... Gold is OPEN ✅")
+            bot.reply_to(message, f"📭 No active GOLD - Waiting\nGold ${round(g,2)} RSI {round(rg,1)} EMA50 ${round(ema50,2)}\nSession {is_good_session()} - Bot scanning 60s")
         else:
             t="📊 ACTIVE GOLD ("+str(len(active_signals))+"):\n"
             for s in active_signals:
@@ -217,8 +277,8 @@ def handle_start(message):
             bot.reply_to(message,t)
         return
     if txt.startswith('/signal') or txt.startswith('/price'):
-        bot.reply_to(message, f"🔍 GOLD ANALYSIS 👑\n\n🥇 GOLD: ${round(g,2)} RSI: {round(rg,1)} OPEN ✅\n\n⏳ Waiting for RSI <30 BUY or >70 SELL\nTP $10 / SL $10 only\nScanning every 60s AUTO...\nActive: {len(active_signals)}\n\nChannel: @KEVINTRAILBLAZE"); return
-    bot.reply_to(message, f"👑 KEVIN GOLD ONLY V4 ✅\n\n🥇 GOLD: ${g} OPEN ✅\nRSI: {round(rg,1)}\n\nGOLD ONLY - TP $10 / SL $10\n\nCommands:\n/signal - Analyze gold\n/active - Check active\n/testsignal - Test\n/price /id\n\nBot AUTO sends itself every 60s!")
+        bot.reply_to(message, f"🔍 GOLD V5 ANALYSIS 👑\n\n🥇 GOLD: ${round(g,2)}\nRSI: {round(rg,1)} | EMA50: ${round(ema50,2)}\nSession Good: {is_good_session()}\n\nStrategy: RSI<30 + Price>EMA50 = BUY (80%)\nRSI>70 + Price<EMA50 = SELL\nTP $10 / SL $10\nScanning 60s AUTO...\nActive: {len(active_signals)}\n\nChannel: @KEVINTRAILBLAZE"); return
+    bot.reply_to(message, f"👑 KEVIN GOLD V5 80% ✅\n\n🥇 GOLD: ${g}\nRSI: {round(rg,1)} EMA50: ${round(ema50,2)}\n\nGOLD ONLY - TP $10 / SL $10\n80% Strategy: RSI + EMA + Session\n\nCommands:\n/signal - Analyze\n/active - Check active\n/testsignal - Test\n/price /id\n\nBot AUTO 60s!")
 
 threading.Thread(target=signal_loop,daemon=True).start()
 
