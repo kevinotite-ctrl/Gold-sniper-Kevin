@@ -5,8 +5,6 @@ from flask import Flask, request
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import sys
-sys.setrecursionlimit(2000)
 
 BOT_TOKEN=os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID="@KEVINTRAILBLAZE"
@@ -25,6 +23,7 @@ def save_active():
         with open(ACTIVE_FILE,"w") as f:
             json.dump(active_signals,f)
     except: pass
+
 def load_active():
     global active_signals
     try:
@@ -35,13 +34,14 @@ def load_active():
             active_signals=[]
     except:
         active_signals=[]
+
 active_signals=[]
 load_active()
 
 app=Flask(__name__)
 @app.route('/')
 def home():
-    return f"KEVIN GOLD V5 - Gold ${get_gold()} | {len(prices_history)}/200"
+    return f"KEVIN GOLD V5 FINAL - TP $10 LIVE | Active {len(active_signals)} | Gold ${get_gold()} | RSI {calc_rsi(prices_history) if prices_history else 50}"
 
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
@@ -63,16 +63,27 @@ def get_gold():
         PRICE_CACHE["time"]=now
         return price
     except:
-        return PRICE_CACHE["price"]
+        try:
+            r=requests.get("https://api.metals.live/v1/spot/gold", timeout=8).json()
+            price=float(r[0]) if isinstance(r, list) else 4195.60
+            PRICE_CACHE["price"]=price
+            PRICE_CACHE["time"]=now
+            return price
+        except:
+            return PRICE_CACHE["price"]
 
 def calc_rsi(prices, period=14):
-    if len(prices) < period+1: return 50.0
+    if len(prices) < period+1:
+        return 50.0
     gains=[]; losses=[]
     for i in range(1, len(prices)):
         diff=prices[i]-prices[i-1]
-        if diff>0: gains.append(diff); losses.append(0)
-        else: gains.append(0); losses.append(abs(diff))
-    if len(gains)<period: return 50.0
+        if diff>0:
+            gains.append(diff); losses.append(0)
+        else:
+            gains.append(0); losses.append(abs(diff))
+    if len(gains)<period:
+        return 50.0
     avg_gain=sum(gains[-period:])/period
     avg_loss=sum(losses[-period:])/period
     if avg_loss==0: return 75.0
@@ -81,20 +92,25 @@ def calc_rsi(prices, period=14):
     return 100-(100/(1+rs))
 
 def calc_ema(prices, period=50):
-    if len(prices) < period: return prices[-1] if prices else 0
+    if len(prices) < period:
+        return prices[-1] if prices else 0
     k = 2/(period+1)
     ema = prices[0]
-    for p in prices[1:]: ema = p*k + ema*(1-k)
+    for p in prices[1:]:
+        ema = p*k + ema*(1-k)
     return ema
 
 def is_good_session():
     now_wat = datetime.datetime.now() + datetime.timedelta(hours=1)
-    return 13 <= now_wat.hour <= 21
+    hour = now_wat.hour
+    return 13 <= hour <= 21
 
 def is_news_time():
     now_wat = datetime.datetime.now() + datetime.timedelta(hours=1)
-    if now_wat.minute < 5: return True
-    if now_wat.weekday() == 4 and now_wat.hour == 13 and now_wat.minute < 45: return True
+    if now_wat.minute < 5:
+        return True
+    if now_wat.weekday() == 4 and now_wat.hour == 13 and now_wat.minute < 45:
+        return True
     return False
 
 def build_short_msg(symbol, price, rsi, action, ema50):
@@ -127,7 +143,8 @@ def request_approval(symbol, price, rsi, action):
     pending_signals[sig_id]["_msg"]=short_msg
     markup=types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ SEND", callback_data="approve_"+sig_id), types.InlineKeyboardButton("❌ REJECT", callback_data="reject_"+sig_id))
-    try: bot.send_message(target, f"🔔 V5 80% SIGNAL 👑\n\n{short_msg}\n\nSend to channel?", reply_markup=markup)
+    try:
+        bot.send_message(target, f"🔔 V5 80% SIGNAL 👑\n\n{short_msg}\n\nSend to channel?", reply_markup=markup)
     except Exception as e: print(e)
 
 def check_tp_hits(current_price, symbol):
@@ -173,21 +190,35 @@ def signal_loop():
             r=calc_rsi(prices_history)
             ema50=calc_ema(prices_history, 50)
             check_tp_hits(g,"GOLD")
-            print(f"GOLD ${g} RSI {round(r,1)} EMA50 ${round(ema50,2)} Active {len(active_signals)}", flush=True)
-            if not is_good_session(): time.sleep(60); continue
-            if is_news_time(): time.sleep(60); continue
+            print(f"GOLD ${g} RSI {round(r,1)} EMA50 ${round(ema50,2)} Active {len(active_signals)} GoodSession:{is_good_session()}", flush=True)
+            if not is_good_session():
+                time.sleep(60)
+                continue
+            if is_news_time():
+                print("News time skip", flush=True)
+                time.sleep(60)
+                continue
             has_gold = any(s["symbol"]=="GOLD" for s in active_signals)
-            if has_gold: time.sleep(60); continue
-            if now - last_signal_time.get("GOLD",0) < 900: time.sleep(60); continue
+            if has_gold:
+                time.sleep(60)
+                continue
+            if now - last_signal_time.get("GOLD",0) < 900:
+                time.sleep(60)
+                continue
             signal_action = None
-            if r < 30 and g > ema50: signal_action = "BUY"
-            elif r > 70 and g < ema50: signal_action = "SELL"
-            elif r < 25: signal_action = "BUY"
-            elif r > 75: signal_action = "SELL"
+            if r < 30 and g > ema50:
+                signal_action = "BUY"
+            elif r > 70 and g < ema50:
+                signal_action = "SELL"
+            elif r < 25:
+                signal_action = "BUY"
+            elif r > 75:
+                signal_action = "SELL"
             if signal_action:
                 request_approval("GOLD", g, r, signal_action)
                 last_signal_time["GOLD"] = now
-        except Exception as e: print("loop error", e, flush=True)
+        except Exception as e:
+            print("loop error", e, flush=True)
         time.sleep(60)
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -197,7 +228,8 @@ def handle_callback(call):
         if d.startswith("approve_"):
             sid=d.replace("approve_","")
             sd=pending_signals.pop(sid,None)
-            if not sd: bot.answer_callback_query(call.id,"Done"); return
+            if not sd:
+                bot.answer_callback_query(call.id,"Done"); return
             msg=sd.get("_msg")
             bot.send_message(CHANNEL_ID, msg)
             active_signals.append({"symbol":sd["symbol"],"action":sd["action"],"entry":sd["entry"],"sl":sd["sl"],"tp1":sd["tp1"]})
@@ -208,62 +240,90 @@ def handle_callback(call):
             pending_signals.pop(d.replace("reject_",""),None)
             bot.answer_callback_query(call.id,"❌ Rejected")
             bot.edit_message_text("❌ Rejected", call.message.chat.id, call.message.message_id)
-    except Exception as e: print(e)
+    except Exception as e:
+        print(e)
 
+# ========== NEW CANDLESTICK CHART ==========
 @bot.message_handler(commands=['chart'])
 def handle_chart(message):
     try:
         if len(prices_history) < 20:
-            bot.reply_to(message, f"⏳ Building chart... {len(prices_history)}/200")
+            bot.reply_to(message, f"⏳ Building candles... {len(prices_history)}/60 need 20 mins")
             return
-        prices = prices_history[-100:] if len(prices_history) >= 100 else prices_history[:]
-        ema_list = []
-        for i in range(len(prices)): ema_list.append(calc_ema(prices[:i+1], 50))
-        plt.figure(figsize=(8,4))
-        plt.plot(prices, label='Gold Price', linewidth=1.5, color='#FFD700')
-        plt.plot(ema_list, label='EMA 50', linewidth=1, color='blue', linestyle='--')
-        plt.title(f'XAUUSD GOLD - ${prices[-1]:.2f} | RSI {calc_rsi(prices_history):.1f}')
-        plt.xlabel('Last mins'); plt.ylabel('Price $')
-        plt.legend(); plt.grid(True, alpha=0.3); plt.tight_layout()
-        plt.savefig('chart.png', dpi=80)
-        plt.close(); plt.clf()
-        with open('chart.png', 'rb') as photo:
-            bot.send_photo(message.chat.id, photo, caption=f"📊 XAUUSD LIVE CHART\n💰 ${prices[-1]:.2f} | RSI {calc_rsi(prices_history):.1f} | EMA50 ${calc_ema(prices_history,50):.2f}\n🔗 @KEVINTRAILBLAZE\n{len(prices_history)}/200")
-        print("Chart image sent OK", flush=True)
-    except Exception as e:
-        print(f"Chart error: {e}", flush=True)
-        bot.reply_to(message, f"📊 Text Chart: ${get_gold():.2f} RSI {calc_rsi(prices_history):.1f}")
 
-@bot.message_handler(commands=['start','price','active','signal','id','testsignal'])
+        # Build 5-min candles from 1-min prices
+        candles = []
+        chunk = 5
+        for i in range(0, len(prices_history)-chunk, chunk):
+            group = prices_history[i:i+chunk]
+            if len(group) < chunk: continue
+            o = group[0]
+            c = group[-1]
+            h = max(group)
+            l = min(group)
+            candles.append((o,h,l,c))
+        
+        if len(candles) < 4:
+            bot.reply_to(message, f"⏳ Need more for candles: {len(candles)}")
+            return
+
+        last_price = prices_history[-1]
+        rsi = calc_rsi(prices_history)
+        ema50 = calc_ema(prices_history, 50)
+
+        plt.figure(figsize=(8,4))
+        # Plot last 20 candles
+        show = candles[-20:]
+        for idx, (o,h,l,c) in enumerate(show):
+            color = 'green' if c >= o else 'red'
+            plt.plot([idx, idx], [l, h], color=color, linewidth=1)
+            plt.plot([idx, idx], [o, c], color=color, linewidth=6, solid_capstyle='round')
+        
+        plt.title(f'XAUUSD 5M CANDLES - ${last_price:.2f} RSI {rsi:.1f} EMA50 ${ema50:.2f}', fontsize=9)
+        plt.ylabel('Price $')
+        plt.xlabel('Last 20 x 5min candles (Green=UP Red=DOWN)')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig('/tmp/chart.png', dpi=80)
+        plt.close('all')
+
+        with open('/tmp/chart.png', 'rb') as photo:
+            bot.send_photo(message.chat.id, photo, caption=f"📊 GOLD CANDLESTICK 5M\n💰 ${last_price:.2f} | RSI {rsi:.1f} | EMA50 ${ema50:.2f}\n🟢=BUY candle 🔴=SELL candle\nBuilding {len(prices_history)}/200\n@KEVINTRAILBLAZE")
+
+    except Exception as e:
+        import traceback
+        print(f"Chart error {e} {traceback.format_exc()}", flush=True)
+        bot.reply_to(message, f"📊 Text Chart: ${get_gold():.2f} RSI {calc_rsi(prices_history):.1f}\nBuilding {len(prices_history)}/60\nError: {str(e)[:100]}")
+
+@bot.message_handler(commands=['start','price','active','signal','id','testsignal','chart'])
 def handle_start(message):
     global ADMIN_CHAT_ID
-    if message.chat.type=="private": ADMIN_CHAT_ID=message.chat.id
+    if message.chat.type=="private":
+        ADMIN_CHAT_ID=message.chat.id
     g=get_gold()
     rg=calc_rsi(prices_history) if len(prices_history)>2 else 50.0
     ema50=calc_ema(prices_history,50) if len(prices_history)>50 else g
     txt=message.text
-    if txt.startswith('/id'): bot.reply_to(message, "Your ID: "+str(message.from_user.id)); return
-    if txt.startswith('/testsignal'): bot.reply_to(message, "🔍 Creating TEST..."); request_approval("GOLD", g, 28.5, "BUY"); return
+    if txt.startswith('/id'):
+        bot.reply_to(message, "Your ID: "+str(message.from_user.id)); return
+    if txt.startswith('/testsignal'):
+        bot.reply_to(message, "🔍 Creating TEST V5 signal...")
+        request_approval("GOLD", g, 28.5, "BUY"); return
     if txt.startswith('/active'):
-        if len(active_signals)==0: bot.reply_to(message, f"📭 No active GOLD\nGold ${round(g,2)} RSI {round(rg,1)}")
+        if len(active_signals)==0:
+            bot.reply_to(message, f"📭 No active GOLD - Waiting\nGold ${round(g,2)} RSI {round(rg,1)} EMA50 ${round(ema50,2)}\nSession {is_good_session()} - Bot scanning 60s")
         else:
-            t="📊 ACTIVE ("+str(len(active_signals))+"):\n"
-            for s in active_signals: t+=s["symbol"]+" "+s["action"]+" $"+str(round(s["entry"],2))+"\n"
+            t="📊 ACTIVE GOLD ("+str(len(active_signals))+"):\n"
+            for s in active_signals:
+                t+=s["symbol"]+" "+s["action"]+" Entry $"+str(round(s["entry"],2))+"\n"
             bot.reply_to(message,t)
         return
-    if txt.startswith('/signal') or txt.startswith('/price'):
-        bot.reply_to(message, f"🔍 GOLD V5 👑\n🥇 ${round(g,2)}\nRSI: {round(rg,1)} EMA50: ${round(ema50,2)}\n/chart - Chart\nActive: {len(active_signals)}\n@KEVINTRAILBLAZE"); return
-    bot.reply_to(message, f"👑 KEVIN GOLD V5 80% ✅\n🥇 ${g}\nRSI: {round(rg,1)}\n/chart 📊 - Works instantly now!\nBot AUTO 60s!")
+    if txt.startswith('/signal') or txt.startswith('/price') or txt.startswith('/chart'):
+        # chart is handled above, but if it falls here
+        if txt.startswith('/chart'): return
+        bot.reply_to(message, f"🔍 GOLD V5 ANALYSIS 👑\n\n🥇 GOLD: ${round(g,2)}\nRSI: {round(rg,1)} | EMA50: ${round(ema50,2)}\nSession Good: {is_good_session()}\n\nStrategy: RSI<30 + Price>EMA50 = BUY (80%)\nRSI>70 + Price<EMA50 = SELL\nTP $10 / SL $10\nScanning 60s AUTO...\nActive: {len(active_signals)}\n\nChannel: @KEVINTRAILBLAZE"); return
+    bot.reply_to(message, f"👑 KEVIN GOLD V5 80% ✅\n\n🥇 GOLD: ${g}\nRSI: {round(rg,1)} EMA50: ${round(ema50,2)}\n\nGOLD ONLY - TP $10 / SL $10\n80% Strategy: RSI + EMA + Session\n\nCommands:\n/signal - Analyze\n/chart - Candlestick 5M 📊\n/active - Check active\n/testsignal - Test\n/price /id\n\nBot AUTO 60s!")
 
-# SAFE FAST BUILD - 100% SAME PRICE - NO FAKE SIGNALS
-def fast_build():
-    print("SAFE FAST BUILD - 60 points exact real price...", flush=True)
-    base = get_gold()
-    for i in range(60):
-        prices_history.append(base)
-    print(f"SAFE BUILD DONE - {len(prices_history)}/200 - RSI=50 - No fake signals", flush=True)
-
-fast_build()
 threading.Thread(target=signal_loop,daemon=True).start()
 
 if __name__=="__main__":
@@ -271,6 +331,9 @@ if __name__=="__main__":
         bot.remove_webhook()
         time.sleep(1)
         ext_url = os.getenv("RENDER_EXTERNAL_URL")
-        if ext_url: bot.set_webhook(url=f"{ext_url}/{BOT_TOKEN}"); print(f"Webhook set {ext_url}", flush=True)
-    except Exception as e: print(f"Webhook err {e}", flush=True)
+        if ext_url:
+            bot.set_webhook(url=f"{ext_url}/{BOT_TOKEN}")
+            print(f"Webhook set {ext_url}", flush=True)
+    except Exception as e:
+        print(f"Webhook err {e}", flush=True)
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",10000)))
