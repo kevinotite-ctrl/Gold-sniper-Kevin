@@ -5,7 +5,8 @@ from flask import Flask, request
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import io
+import sys
+sys.setrecursionlimit(2000)
 
 BOT_TOKEN=os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN")
 CHANNEL_ID="@KEVINTRAILBLAZE"
@@ -42,7 +43,7 @@ load_active()
 app=Flask(__name__)
 @app.route('/')
 def home():
-    return f"KEVIN GOLD V5 FINAL - TP $10 + CHART LIVE | Active {len(active_signals)} | Gold ${get_gold()} | RSI {calc_rsi(prices_history) if prices_history else 50}"
+    return f"KEVIN GOLD V5 FINAL - TP $10 LIVE | Active {len(active_signals)} | Gold ${get_gold()} | RSI {calc_rsi(prices_history) if prices_history else 50}"
 
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
@@ -114,45 +115,6 @@ def is_news_time():
         return True
     return False
 
-# === CHART GENERATOR WITH SIGNAL MARK ===
-def create_xauusd_chart(signal_price=None, signal_type=None):
-    try:
-        if len(prices_history) < 5:
-            return None
-        plt.style.use('dark_background')
-        fig, ax = plt.subplots(figsize=(10,5))
-        ax.plot(prices_history, color='#00FF9D', linewidth=2, label='XAUUSD')
-        # EMA50
-        ema_vals = []
-        temp_ema = prices_history[0]
-        k = 2/(50+1)
-        for p in prices_history:
-            temp_ema = p*k + temp_ema*(1-k)
-            ema_vals.append(temp_ema)
-        ax.plot(ema_vals, color='#FF6B00', linewidth=1, linestyle='--', label='EMA50')
-        
-        # Mark signal
-        if signal_price:
-            color = '#00FF00' if signal_type=='BUY' else '#FF0000'
-            ax.scatter(len(prices_history)-1, signal_price, color=color, s=150, marker='^' if signal_type=='BUY' else 'v', label=f'{signal_type} SIGNAL', zorder=5)
-            ax.axhline(signal_price, color=color, linestyle=':', alpha=0.5)
-        
-        rsi_val = calc_rsi(prices_history)
-        ax.set_title(f'XAUUSD GOLD V5 - ${prices_history[-1]:.2f} | RSI {rsi_val:.1f} | {signal_type if signal_type else ""}', color='white', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Last 200 candles (60s)', color='gray')
-        ax.set_ylabel('Price $', color='gray')
-        ax.legend(loc='upper left')
-        ax.grid(alpha=0.2)
-        buf = io.BytesIO()
-        plt.tight_layout()
-        plt.savefig(buf, format='png', dpi=150, facecolor='#0e0e0e')
-        buf.seek(0)
-        plt.close(fig)
-        return buf
-    except Exception as e:
-        print(f"Chart error {e}")
-        return None
-
 def build_short_msg(symbol, price, rsi, action, ema50):
     sl=price-10 if action=="BUY" else price+10
     tp1=price+10 if action=="BUY" else price-10
@@ -172,32 +134,21 @@ def request_approval(symbol, price, rsi, action):
     
     ema50 = calc_ema(prices_history, 50)
     short_msg,data=build_short_msg(symbol, price, rsi, action, ema50)
-    chart_buf = create_xauusd_chart(price, action)
     
     if not target:
         try:
-            # AUTO SEND TO CHANNEL WITH CHART
-            if chart_buf:
-                bot.send_photo(CHANNEL_ID, chart_buf, caption=short_msg)
-            else:
-                bot.send_message(CHANNEL_ID, short_msg)
+            bot.send_message(CHANNEL_ID, short_msg)
             active_signals.append({"symbol":data["symbol"],"action":data["action"],"entry":data["entry"],"sl":data["sl"],"tp1":data["tp1"]})
             save_active()
         except Exception as e: print(e)
         return
-    
     sig_id=symbol+"_"+str(int(time.time()))
     pending_signals[sig_id]=data
     pending_signals[sig_id]["_msg"]=short_msg
-    pending_signals[sig_id]["_price"]=price
-    pending_signals[sig_id]["_action"]=action
     markup=types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ SEND", callback_data="approve_"+sig_id), types.InlineKeyboardButton("❌ REJECT", callback_data="reject_"+sig_id))
     try:
-        if chart_buf:
-            bot.send_photo(target, chart_buf, caption=f"🔔 V5 80% SIGNAL 👑\n\n{short_msg}\n\nSend to channel?", reply_markup=markup)
-        else:
-            bot.send_message(target, f"🔔 V5 80% SIGNAL 👑\n\n{short_msg}\n\nSend to channel?", reply_markup=markup)
+        bot.send_message(target, f"🔔 V5 80% SIGNAL 👑\n\n{short_msg}\n\nSend to channel?", reply_markup=markup)
     except Exception as e: print(e)
 
 def check_tp_hits(current_price, symbol):
@@ -236,14 +187,18 @@ def signal_loop():
             g=get_gold()
             prices_history.append(g)
             if len(prices_history)>200: prices_history.pop(0)
+            
             if len(prices_history) < 60:
                 print(f"Building history {len(prices_history)}/60", flush=True)
                 time.sleep(60)
                 continue
+                
             r=calc_rsi(prices_history)
             ema50=calc_ema(prices_history, 50)
             check_tp_hits(g,"GOLD")
+            
             print(f"GOLD ${g} RSI {round(r,1)} EMA50 ${round(ema50,2)} Active {len(active_signals)} GoodSession:{is_good_session()}", flush=True)
+            
             if not is_good_session():
                 time.sleep(60)
                 continue
@@ -251,13 +206,16 @@ def signal_loop():
                 print("News time skip", flush=True)
                 time.sleep(60)
                 continue
+            
             has_gold = any(s["symbol"]=="GOLD" for s in active_signals)
             if has_gold:
                 time.sleep(60)
                 continue
+                
             if now - last_signal_time.get("GOLD",0) < 900:
                 time.sleep(60)
                 continue
+            
             signal_action = None
             if r < 30 and g > ema50:
                 signal_action = "BUY"
@@ -267,9 +225,11 @@ def signal_loop():
                 signal_action = "BUY"
             elif r > 75:
                 signal_action = "SELL"
+            
             if signal_action:
                 request_approval("GOLD", g, r, signal_action)
                 last_signal_time["GOLD"] = now
+                
         except Exception as e:
             print("loop error", e, flush=True)
         time.sleep(60)
@@ -284,17 +244,11 @@ def handle_callback(call):
             if not sd:
                 bot.answer_callback_query(call.id,"Done"); return
             msg=sd.get("_msg")
-            price=sd.get("_price")
-            action=sd.get("_action")
-            chart_buf = create_xauusd_chart(price, action)
-            if chart_buf:
-                bot.send_photo(CHANNEL_ID, chart_buf, caption=msg)
-            else:
-                bot.send_message(CHANNEL_ID, msg)
+            bot.send_message(CHANNEL_ID, msg)
             active_signals.append({"symbol":sd["symbol"],"action":sd["action"],"entry":sd["entry"],"sl":sd["sl"],"tp1":sd["tp1"]})
             save_active()
-            bot.answer_callback_query(call.id,"✅ Sent with Chart!")
-            bot.edit_message_text("✅ SENT to @KEVINTRAILBLAZE with Chart\n\n"+msg, call.message.chat.id, call.message.message_id)
+            bot.answer_callback_query(call.id,"✅ Sent!")
+            bot.edit_message_text("✅ SENT to @KEVINTRAILBLAZE\n\n"+msg, call.message.chat.id, call.message.message_id)
         elif d.startswith("reject_"):
             pending_signals.pop(d.replace("reject_",""),None)
             bot.answer_callback_query(call.id,"❌ Rejected")
@@ -302,7 +256,55 @@ def handle_callback(call):
     except Exception as e:
         print(e)
 
-@bot.message_handler(commands=['start','price','active','signal','id','testsignal','chart'])
+# ===== FIXED CHART COMMAND - NO RECURSION =====
+@bot.message_handler(commands=['chart'])
+def handle_chart(message):
+    try:
+        if len(prices_history) < 20:
+            bot.reply_to(message, f"⏳ Building chart... {len(prices_history)}/200 - Wait 1 min then try again")
+            return
+        
+        prices = prices_history[-100:] if len(prices_history) >= 100 else prices_history[:]
+        
+        # Calculate EMA list for chart safely
+        ema_list = []
+        for i in range(len(prices)):
+            slice_p = prices_history[-(len(prices)-i):] if len(prices_history) >= (len(prices)-i) else prices[:i+1]
+            if len(slice_p) < 2:
+                ema_list.append(slice_p[0] if slice_p else 0)
+            else:
+                ema_list.append(calc_ema(slice_p, 50))
+
+        plt.figure(figsize=(8,4))
+        plt.plot(prices, label='Gold Price', linewidth=1.5, color='#FFD700')
+        plt.plot(ema_list, label='EMA 50', linewidth=1, color='blue', linestyle='--')
+        plt.title(f'XAUUSD GOLD - ${prices[-1]:.2f} | RSI {calc_rsi(prices_history):.1f}')
+        plt.xlabel('Last 100 mins')
+        plt.ylabel('Price $')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig('chart.png', dpi=80)
+        plt.close()
+        plt.clf()
+        plt.cla()
+
+        with open('chart.png', 'rb') as photo:
+            bot.send_photo(message.chat.id, photo, caption=f"📊 XAUUSD LIVE CHART\n💰 ${prices[-1]:.2f} | RSI {calc_rsi(prices_history):.1f} | EMA50 ${calc_ema(prices_history,50):.2f}\n🔗 @KEVINTRAILBLAZE\n{len(prices_history)}/200")
+        
+        print("Chart image sent OK", flush=True)
+        
+    except Exception as e:
+        print(f"Chart error: {e}", flush=True)
+        try:
+            g=get_gold()
+            r=calc_rsi(prices_history) if prices_history else 50
+            ema=calc_ema(prices_history,50) if prices_history else g
+            bot.reply_to(message, f"📊 XAUUSD CHART (Text Mode)\n💰 Price: ${g:.2f}\n📈 EMA50: ${ema:.2f}\n📊 RSI: {r:.1f}\n📦 {len(prices_history)}/200\nError: {str(e)[:100]}\n@KEVINTRAILBLAZE")
+        except Exception as e2:
+            bot.reply_to(message, f"Chart error: {e}")
+
+@bot.message_handler(commands=['start','price','active','signal','id','testsignal'])
 def handle_start(message):
     global ADMIN_CHAT_ID
     if message.chat.type=="private":
@@ -311,19 +313,10 @@ def handle_start(message):
     rg=calc_rsi(prices_history) if len(prices_history)>2 else 50.0
     ema50=calc_ema(prices_history,50) if len(prices_history)>50 else g
     txt=message.text
-    if txt.startswith('/chart'):
-        bot.send_chat_action(message.chat.id, 'upload_photo')
-        chart_buf = create_xauusd_chart()
-        if chart_buf:
-            caption = f"📊 XAUUSD GOLD V5 LIVE CHART\n\n🥇 Price: ${round(g,2)}\n📈 RSI: {round(rg,1)}\n📉 EMA50: ${round(ema50,2)}\n⏰ {datetime.datetime.now().strftime('%H:%M:%S')} WAT\n\n@KEVINTRAILBLAZE"
-            bot.send_photo(message.chat.id, chart_buf, caption=caption)
-        else:
-            bot.reply_to(message, f"⏳ Building chart... {len(prices_history)}/200\nGold: ${round(g,2)} RSI {round(rg,1)}")
-        return
     if txt.startswith('/id'):
         bot.reply_to(message, "Your ID: "+str(message.from_user.id)); return
     if txt.startswith('/testsignal'):
-        bot.reply_to(message, "🔍 Creating TEST V5 signal with CHART...")
+        bot.reply_to(message, "🔍 Creating TEST V5 signal...")
         request_approval("GOLD", g, 28.5, "BUY"); return
     if txt.startswith('/active'):
         if len(active_signals)==0:
@@ -335,8 +328,8 @@ def handle_start(message):
             bot.reply_to(message,t)
         return
     if txt.startswith('/signal') or txt.startswith('/price'):
-        bot.reply_to(message, f"🔍 GOLD V5 ANALYSIS 👑\n\n🥇 GOLD: ${round(g,2)}\nRSI: {round(rg,1)} | EMA50: ${round(ema50,2)}\nSession Good: {is_good_session()}\n\nStrategy: RSI<30 + Price>EMA50 = BUY (80%)\nRSI>70 + Price<EMA50 = SELL\nTP $10 / SL $10\nScanning 60s AUTO...\nActive: {len(active_signals)}\n\nChannel: @KEVINTRAILBLAZE"); return
-    bot.reply_to(message, f"👑 KEVIN GOLD V5 80% + CHART ✅\n\n🥇 GOLD: ${g}\nRSI: {round(rg,1)} EMA50: ${round(ema50,2)}\n\nGOLD ONLY - TP $10 / SL $10 + LIVE CHART\n80% Strategy: RSI + EMA + Session\n\nCommands:\n/signal - Analyze\n/active - Check active\n/chart - Show XAUUSD Chart 📊\n/testsignal - Test with Chart\n/price /id\n\nBot AUTO 60s!")
+        bot.reply_to(message, f"🔍 GOLD V5 ANALYSIS 👑\n\n🥇 GOLD: ${round(g,2)}\nRSI: {round(rg,1)} | EMA50: ${round(ema50,2)}\nSession Good: {is_good_session()}\n\nStrategy: RSI<30 + Price>EMA50 = BUY (80%)\nRSI>70 + Price<EMA50 = SELL\nTP $10 / SL $10\nScanning 60s AUTO...\nActive: {len(active_signals)}\n\nCommands:\n/chart - Live Chart Image\n/signal - Analyze\n/active - Check active\n/testsignal - Test\n/price /id\n\nChannel: @KEVINTRAILBLAZE"); return
+    bot.reply_to(message, f"👑 KEVIN GOLD V5 80% ✅\n\n🥇 GOLD: ${g}\nRSI: {round(rg,1)} EMA50: ${round(ema50,2)}\n\nGOLD ONLY - TP $10 / SL $10\n80% Strategy: RSI + EMA + Session\n\nCommands:\n/chart - Live Chart Image 📊\n/signal - Analyze\n/active - Check active\n/testsignal - Test\n/price /id\n\nBot AUTO 60s!")
 
 threading.Thread(target=signal_loop,daemon=True).start()
 
