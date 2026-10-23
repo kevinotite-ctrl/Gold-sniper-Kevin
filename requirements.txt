@@ -1,5 +1,6 @@
-pyTelegramBotAPI
+yfinance
+pandas
+matplotlib
 requests
-flask
-pytz
-matplotlib==3.8.2
+pyTelegramBotAPI
+Flask
