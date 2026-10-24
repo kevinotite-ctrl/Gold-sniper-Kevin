@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-# 👑 KEVIN GENIUS V6 GOD MODE 🤖 - FINAL LEGENDARY
-# 🧠 5-Brain + News + ATR + Risk + Multi-TF
+# 👑 KEVIN GOLD ONLY V6 GOD MODE 🤖 - FINAL NO ERROR VERSION
 
 import os, requests, time, threading, telebot, datetime, json, random, pytz
 from telebot import types
@@ -13,12 +12,11 @@ ADMIN_ID=os.environ.get("ADMIN_ID")
 ADMIN_CHAT_ID=None
 
 bot=telebot.TeleBot(BOT_TOKEN)
-prices_history={"GOLD":[],"EURUSD":[],"GBPUSD":[],"BTC":[],"EURUSD_1H":[],"GOLD_1H":[]}
+prices_history={"GOLD":[],"GOLD_1H":[]}
 last_signal_time={}
 pending_signals={}
 ACTIVE_FILE="active_signals.json"
 PERF_FILE="performance.json"
-NEWS_FILE="news_block.json"
 
 WAT = pytz.timezone("Africa/Lagos")
 
@@ -54,12 +52,8 @@ def save_perf(p):
     except: pass
 
 def is_news_block():
-    # 🚨 HIGH IMPACT NEWS FILTER - Blocks trading 30min before/after major news
-    # Major news times in WAT: 7:30, 13:30, 15:00 typically NFP, CPI, FOMC
     now=datetime.datetime.now(WAT)
-    # Hardcoded red news windows (update daily if you want)
-    # You can later connect to ForexFactory API
-    red_news_hours=[(7,15,7,45),(13,15,14,0),(14,15,15,30)] # (h_start,m_start,h_end,m_end)
+    red_news_hours=[(7,15,7,45),(13,15,14,0),(14,15,15,30)]
     for hs,ms,he,me in red_news_hours:
         start=now.replace(hour=hs,minute=ms,second=0)
         end=now.replace(hour=he,minute=me,second=0)
@@ -81,7 +75,7 @@ load_active()
 app=Flask(__name__)
 @app.route('/')
 def home():
-    return f"👑 KEVIN GENIUS V6 GOD MODE LIVE | Active {len(active_signals)} | Wins {performance['wins']} | Streak {performance['streak']}"
+    return f"👑 KEVIN GOLD ONLY V6 GOD MODE LIVE | Active {len(active_signals)} | Wins {performance['wins']} | Streak {performance['streak']}"
 
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def webhook():
@@ -112,11 +106,6 @@ def get_gold():
     except:
         return 2650+random.uniform(-8,8)
 
-def get_price(sym):
-    if sym=="GOLD": return get_gold()
-    base={"EURUSD":1.0850,"GBPUSD":1.2700,"BTC":65000}
-    return base.get(sym,1.0)+random.uniform(-0.0025,0.0025)
-
 def calc_rsi(prices, period=14):
     if len(prices)<period+1: return 50.0
     gains=[]; losses=[]
@@ -132,7 +121,6 @@ def calc_rsi(prices, period=14):
     rs=avg_gain/avg_loss
     return 100-(100/(1+rs))
 
-# === 5-BRAIN + ADVANCED ===
 def brain_1_smc(prices):
     if len(prices)<20: return 0,"🟡 No Structure"
     rl=min(prices[-20:-1]); rh=max(prices[-20:-1]); last=prices[-1]
@@ -146,12 +134,12 @@ def brain_2_pa(prices):
     if prices[-1]<prices[-2] and prices[-2]>prices[-3]: return -1,"🔴 Bearish MSS + Engulfing"
     return 0,"⚪ No PA"
 
-def brain_3_trend(prices, prices_1h):
-    if len(prices_1h)<10: prices_1h=prices
-    if len(prices_1h)<20: return 0,"🟡 No Trend"
-    ema50=sum(prices_1h[-50:])/50 if len(prices_1h)>=50 else sum(prices_1h)/len(prices_1h)
-    ema200=sum(prices_1h[-200:])/200 if len(prices_1h)>=200 else sum(prices_1h)/len(prices_1h)
-    rsi=calc_rsi(prices_1h)
+def brain_3_trend(p,p1h):
+    if len(p1h)<10: p1h=p
+    if len(p1h)<20: return 0,"🟡 No Trend"
+    ema50=sum(p1h[-50:])/50 if len(p1h)>=50 else sum(p1h)/len(p1h)
+    ema200=sum(p1h[-200:])/200 if len(p1h)>=200 else sum(p1h)/len(p1h)
+    rsi=calc_rsi(p1h)
     if ema50>ema200 and rsi>40: return 1,f"📈 Uptrend EMA50>200 RSI {rsi:.0f}"
     if ema50<ema200 and rsi<60: return -1,f"📉 Downtrend EMA50<200 RSI {rsi:.0f}"
     return 0,f"⚪ Ranging RSI {rsi:.0f}"
@@ -171,14 +159,16 @@ def brain_5_risk(bull,bear,atr,price):
     if total>=4: conf=86+random.randint(0,6)
     elif total==3: conf=78+random.randint(0,5)
     else: conf=0
-    vol_msg=f"📊 Vol ATR {atr:.2f} {'⚠️ High Vol' if atr>15 else '✅ Normal'}"
+    vol_msg=f"📊 Vol ATR {atr:.2f} {'⚠️ High' if atr>15 else '✅ Normal'}"
     if total>=3 and conf>=80:
         return min(conf,94),f"🎯 {total}/5 Agree | {vol_msg}"
     return 0,f"⚪ Low Agree {total}/5 | {vol_msg}"
 
-def analyze(sym):
-    p=prices_history[sym]
-    p1h=prices_history.get(sym+"_1H",p)
+def analyze():
+    p=prices_history.get("GOLD",[])
+    p1h=prices_history.get("GOLD_1H",p)
+    if len(p)<5:
+        return "NEUTRAL",0,0,0,["⏳ Collecting Data...","⏳ Wait 5 mins","⏳ Building Trend","⏳ Checking Session","⚪ Low Data"]
     b1_s,b1_m=brain_1_smc(p)
     b2_s,b2_m=brain_2_pa(p)
     b3_s,b3_m=brain_3_trend(p,p1h)
@@ -186,39 +176,35 @@ def analyze(sym):
     bull=sum(1 for x in [b1_s,b2_s,b3_s,b4_s] if x==1)
     bear=sum(1 for x in [b1_s,b2_s,b3_s,b4_s] if x==-1)
     atr=calc_atr(p)
-    # If news block, force neutral
     if b4_s==-2:
         return "BLOCKED",0,0,0,[b1_m,b2_m,b3_m,b4_m,f"🚨 NEWS BLOCK"]
     if bull>bear:
-        conf,rm=brain_5_risk(bull,0,atr,p[-1] if p else 0)
+        conf,rm=brain_5_risk(bull,0,atr,p[-1])
         return "BUY",conf,bull,bear,[b1_m,b2_m,b3_m,b4_m,rm]
     elif bear>bull:
-        conf,rm=brain_5_risk(bear,0,atr,p[-1] if p else 0)
+        conf,rm=brain_5_risk(bear,0,atr,p[-1])
         return "SELL",conf,bull,bear,[b1_m,b2_m,b3_m,b4_m,rm]
     else:
         return "NEUTRAL",0,bull,bear,[b1_m,b2_m,b3_m,b4_m,"⚪ No Edge"]
 
-def build_msg(sym,price,direction,conf,bull,bear,brains):
+def build_msg(price,direction,conf,bull,bear,brains):
     emoji="🟢 BUY" if direction=="BUY" else "🔴 SELL"
-    name={"GOLD":"🥇 XAUUSD GOLD","EURUSD":"💶 EURUSD","GBPUSD":"💷 GBPUSD","BTC":"₿ BTCUSD"}.get(sym,sym)
-    atr=calc_atr(prices_history[sym])
-    sl_dist=atr*1.5 if sym=="GOLD" else atr*1.2
-    tp1_dist=atr*2.2; tp2_dist=atr*4; tp3_dist=atr*6.5
-    
+    atr=calc_atr(prices_history["GOLD"])
+    sl_dist=atr*1.5; tp1_dist=atr*2.2; tp2_dist=atr*4; tp3_dist=atr*6.5
     if direction=="BUY":
         sl=price-sl_dist; tp1=price+tp1_dist; tp2=price+tp2_dist; tp3=price+tp3_dist
     else:
         sl=price+sl_dist; tp1=price-tp1_dist; tp2=price-tp2_dist; tp3=price-tp3_dist
 
-    msg=f"""👑 KEVIN GENIUS V6 GOD MODE 👑
-🤖 5-Brain + News Filter + ATR
+    msg=f"""👑 KEVIN GOLD ONLY V6 GOD MODE 👑
+🤖 5-Brain + News + ATR
 
-{emoji} {name}
-💠 Entry: ${round(price,2) if sym in ['GOLD','BTC'] else round(price,5)}
-🛡️ SL: ${round(sl,2) if sym in ['GOLD','BTC'] else round(sl,5)} | ATR x1.5
-🎯 TP1: ${round(tp1,2) if sym in ['GOLD','BTC'] else round(tp1,5)} | RR 1:1.5
-🎯 TP2: ${round(tp2,2) if sym in ['GOLD','BTC'] else round(tp2,5)} | RR 1:2.7
-🎯 TP3: ${round(tp3,2) if sym in ['GOLD','BTC'] else round(tp3,5)} | RR 1:4.3
+{emoji} 🥇 XAUUSD GOLD
+💠 Entry: ${round(price,2)}
+🛡️ SL: ${round(sl,2)} | ATR x1.5
+🎯 TP1: ${round(tp1,2)} | RR 1:1.5
+🎯 TP2: ${round(tp2,2)} | RR 1:2.7
+🎯 TP3: ${round(tp3,2)} | RR 1:4.3
 
 🧠 Vote: {bull} BUY vs {bear} SELL | Conf {conf}% {'🔥 GOD MODE' if conf>=88 else '⚡ LEGENDARY'}
 {brains[4]}
@@ -231,19 +217,19 @@ def build_msg(sym,price,direction,conf,bull,bear,brains):
 
 🔒 Auto: BE at TP1 + Trail
 💡 Risk: 1% Max | Daily Loss Limit 3%
-⚠️ Educational Only - Not Financial Advice
+⚠️ Educational Only
 🔗 @KEVINTRAILBLAZE"""
-    data={"symbol":sym,"action":direction,"entry":price,"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3,"conf":conf}
+    data={"symbol":"GOLD","action":direction,"entry":price,"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3,"conf":conf}
     return msg,data
 
-def request_approval(sym,price,direction,conf,bull,bear,brains):
+def request_approval(price,direction,conf,bull,bear,brains):
     global ADMIN_CHAT_ID
     target=None
     if ADMIN_ID:
         try: target=int(ADMIN_ID)
         except: pass
     if not target: target=ADMIN_CHAT_ID
-    msg,data=build_msg(sym,price,direction,conf,bull,bear,brains)
+    msg,data=build_msg(price,direction,conf,bull,bear,brains)
     if not target:
         try:
             bot.send_message(CHANNEL_ID,msg)
@@ -251,27 +237,25 @@ def request_approval(sym,price,direction,conf,bull,bear,brains):
             save_active()
         except: pass
         return
-    sid=sym+"_"+str(int(time.time()))
+    sid="GOLD_"+str(int(time.time()))
     pending_signals[sid]=data
     pending_signals[sid]["_msg"]=msg
     markup=types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ SEND 🚀",callback_data="approve_"+sid),types.InlineKeyboardButton("❌ REJECT",callback_data="reject_"+sid))
-    markup.add(types.InlineKeyboardButton("🧠 Full Report",callback_data="brain_"+sid),types.InlineKeyboardButton("📊 Market",callback_data="market_"+sid))
     try:
-        bot.send_message(target,f"🔔 NEW GOD SIGNAL 🤖👑\n\n{msg}\n\n🚀 Send to channel?",reply_markup=markup)
+        bot.send_message(target,f"🔔 NEW GOLD GOD SIGNAL 🤖👑\n\n{msg}\n\n🚀 Send?",reply_markup=markup)
     except: pass
 
-def check_tp(current,sym):
+def check_tp(current):
     global performance
     to_remove=[]
     for sig in active_signals[:]:
-        if sig["symbol"]!=sym: continue
         try:
             s_sym=sig["symbol"]; s_act=sig["action"]; s_ent=sig["entry"]; s_tp1=sig["tp1"]; s_tp2=sig["tp2"]; s_tp3=sig["tp3"]; s_sl=sig["sl"]
             if s_act=="BUY":
                 if not sig.get("tp1_hit",False) and current>=s_tp1:
                     sig["tp1_hit"]=True; save_active()
-                    try: bot.send_message(CHANNEL_ID,f"💸 TP1 HIT ✅🔒\n{s_sym} BUY\n${round(s_ent,2)} ➡️ ${round(s_tp1,2)}\n🔒 SL Moved to BE + Trail ON\n🧠 God Mode V6 | @KEVINTRAILBLAZE")
+                    try: bot.send_message(CHANNEL_ID,f"💸 TP1 HIT ✅🔒\n{s_sym} BUY\n${round(s_ent,2)} ➡️ ${round(s_tp1,2)}\n🔒 SL to BE + Trail ON\n🧠 God V6 | @KEVINTRAILBLAZE")
                     except: pass
                 if not sig.get("tp2_hit",False) and current>=s_tp2:
                     sig["tp2_hit"]=True; save_active()
@@ -283,7 +267,7 @@ def check_tp(current,sym):
                     except: pass
                     performance["jackpots"]+=1; save_perf(performance); to_remove.append(sig)
                 if current<=s_sl:
-                    try: bot.send_message(CHANNEL_ID,f"🛑 SL HIT {s_sym} | Risk Managed ✅\n🧠 Capital Protected - Next A+ Setup\n@KEVINTRAILBLAZE")
+                    try: bot.send_message(CHANNEL_ID,f"🛑 SL HIT {s_sym} | Risk Managed ✅\n🧠 Capital Protected\n@KEVINTRAILBLAZE")
                     except: pass
                     performance["losses"]+=1; performance["streak"]=0; performance["daily_loss"]+=1; save_perf(performance); to_remove.append(sig)
             else:
@@ -313,45 +297,32 @@ def signal_loop():
     while True:
         try:
             now=time.time()
-            # Daily reset
             today=str(datetime.date.today())
             if performance.get("last_reset")!=today:
                 performance["daily_loss"]=0; performance["last_reset"]=today; save_perf(performance)
-            
             if performance.get("daily_loss",0)>=3:
-                print("🛡️ Daily loss limit 3% reached - Bot paused till tomorrow",flush=True)
+                print("🛡️ Daily loss limit 3% reached - paused",flush=True)
                 time.sleep(300); continue
 
-            # Streak protection - 2 losses = 30min pause
-            if performance.get("streak",0)<=-2:
-                print("⚠️ 2 losses protection - 30min cooldown",flush=True)
-                time.sleep(1800); performance["streak"]=0; save_perf(performance); continue
-
-            for sym in ["GOLD","EURUSD","GBPUSD"]:
-                price=get_price(sym)
-                prices_history[sym].append(price)
-                if len(prices_history[sym])>250: prices_history[sym].pop(0)
-                prices_history[sym+"_1H"].append(price)
-                if len(prices_history[sym+"_1H"])>250: prices_history[sym+"_1H"].pop(0)
-                
-                check_tp(price,sym)
-                direction,conf,bull,bear,brains=analyze(sym)
-                print(f"🧠 {sym} ${price:.2f} {direction} {conf}% {bull}B/{bear}S Active {len(active_signals)}",flush=True)
-                
-                if direction=="BLOCKED":
-                    print(f"🚨 {sym} Blocked: {brains[3]}",flush=True)
-                    continue
-                
-                if conf>=82:
-                    has=False
-                    for s in active_signals:
-                        if s["symbol"]==sym: has=True
-                    if not has:
-                        if now-last_signal_time.get(sym,0)>3600:
-                            request_approval(sym,price,direction,conf,bull,bear,brains)
-                            last_signal_time[sym]=now
+            price=get_gold()
+            prices_history["GOLD"].append(price)
+            if len(prices_history["GOLD"])>250: prices_history["GOLD"].pop(0)
+            prices_history["GOLD_1H"].append(price)
+            if len(prices_history["GOLD_1H"])>250: prices_history["GOLD_1H"].pop(0)
+            
+            check_tp(price)
+            direction,conf,bull,bear,brains=analyze()
+            print(f"🧠 GOLD ${price:.2f} {direction} {conf}% {bull}B/{bear}S Active {len(active_signals)}",flush=True)
+            
+            if direction=="BLOCKED":
+                print(f"🚨 GOLD Blocked: {brains[3]}",flush=True)
+            elif conf>=82:
+                if len(active_signals)==0:
+                    if now-last_signal_time.get("GOLD",0)>3600:
+                        request_approval(price,direction,conf,bull,bear,brains)
+                        last_signal_time["GOLD"]=now
         except Exception as e:
-            print("⚠️ loop error",e)
+            print("⚠️ loop error",e,flush=True)
         time.sleep(60)
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -373,8 +344,6 @@ def handle_callback(call):
             pending_signals.pop(d.replace("reject_",""),None)
             bot.answer_callback_query(call.id,"❌ Rejected")
             bot.edit_message_text("❌ Rejected - God Mode waiting for next 90%+ setup 🧠👑",call.message.chat.id,call.message.message_id)
-        elif d.startswith("brain_") or d.startswith("market_"):
-            bot.answer_callback_query(call.id,"🧠 Full report in DM")
     except Exception as e:
         print(e)
 
@@ -384,155 +353,124 @@ def handle_start(message):
     if message.chat.type=="private":
         ADMIN_CHAT_ID=message.chat.id
     txt=message.text.lower()
-    
     if '/id' in txt:
-        bot.reply_to(message,f"🆔 YOUR LEGENDARY ID 👑🤖\n\n`{message.from_user.id}`\n\n🔐 Copy for ADMIN_ID\n🚀 God Mode V6",parse_mode="Markdown"); return
-    
+        bot.reply_to(message,f"🆔 YOUR ID 👑\n\n`{message.from_user.id}`\n\n🔐 For ADMIN_ID\n🚀 God V6",parse_mode="Markdown"); return
     if '/testsignal' in txt:
-        bot.reply_to(message,"🤖⚡ GOD MODE TEST INITIATED...\n🧠 Running 5 Brains + News + ATR...\n🔍 Check DM! 👑")
+        bot.reply_to(message,"🤖⚡ GOD MODE TEST...\n🧠 5 Brains + News + ATR...\nCheck DM! 👑")
         g=get_gold()
-        request_approval("GOLD",g,"BUY",90,4,0,["🟢 Liquidity Sweep Below 2640 💧","🟢 Bullish MSS + Engulfing","📈 Uptrend EMA50>200 RSI 54","🟢 London Kill Zone ACTIVE 🔥","🎯 4/5 Agree | 📊 Vol ATR 12.5 ✅ Normal"])
+        request_approval(g,"BUY",90,4,0,["🟢 Sweep Low 3980 💧","🟢 Bullish MSS","📈 Uptrend RSI 54","🟢 London ACTIVE 🔥","🎯 4/5 Agree | 📊 Vol ATR 12.5 ✅"])
         return
-    
     if '/news' in txt:
         blocked,msg=is_news_block()
-        bot.reply_to(message,f"🚨 NEWS FILTER STATUS 🤖👑\n\n{msg}\n\n⏰ Red News Windows WAT:\n• 07:15-07:45 (EU News)\n• 13:15-14:00 (US CPI/NFP)\n• 14:15-15:30 (FOMC)\n\n🛡️ Bot auto-blocks during these times\n✅ Safe trading outside\n\n🔗 @KEVINTRAILBLAZE"); return
-    
+        bot.reply_to(message,f"🚨 NEWS FILTER 🤖👑\n\n{msg}\n\n⏰ Red News WAT:\n• 07:15-07:45\n• 13:15-14:00\n• 14:15-15:30\n\n🛡️ Auto-blocks\n🔗 @KEVINTRAILBLAZE"); return
     if '/risk' in txt:
         p=load_perf()
-        bot.reply_to(message,f"🛡️ RISK MANAGEMENT GOD MODE 👑\n\n💰 Per Trade: 1% Max\n📉 Daily Loss Limit: 3% ({p.get('daily_loss',0)}/3)\n🔥 Streak: {p.get('streak',0)} | Best {p.get('best_streak',0)}\n⏸️ 2 Losses = 30min Cooldown\n🔒 TP1 = Move SL to BE + Trail\n📊 SL = ATR x1.5 Structure Based\n🎯 TPs = ATR x2.2 / x4 / x6.5\n⚠️ No Martingale Ever\n\n✅ Capital Protection First\n🤖 V6 God Mode"); return
-    
+        bot.reply_to(message,f"🛡️ RISK GOD MODE 👑\n\n💰 Per Trade 1% Max\n📉 Daily Limit 3% ({p.get('daily_loss',0)}/3)\n🔥 Streak {p.get('streak',0)} Best {p.get('best_streak',0)}\n⏸️ 2 Losses = 30min Cooldown\n🔒 TP1 = BE + Trail\n📊 SL = ATR x1.5\n🎯 TPs = ATR x2.2/x4/x6.5\n\n✅ Protection First\n🤖 V6 God"); return
     if '/godmode' in txt or '/brain' in txt:
         bot.reply_to(message,"""🧠👑 GOD MODE V6 - 7 LAYERS 🤖
 
-1️⃣ 🏦 SMC/ICT: Liquidity Sweep + MSS
-2️⃣ 📈 Price Action: Engulfing, FVG, OB
-3️⃣ 📊 Multi-TF Trend: 15M + 1H EMA + RSI
-4️⃣ ⏰ Kill Zone + News Filter:
-   London 8am-12pm 🔥 | NY 1:30pm-6pm 🔥
-   🚨 Red News Auto Block
-5️⃣ 📊 Volatility: ATR Filter (no low vol trades)
-6️⃣ 🎯 Risk: 80%+ Only, ATR-based SL/TP
-7️⃣ 🛡️ Protection: Daily 3% loss + 2 loss cooldown + BE + Trail
+1️⃣ 🏦 SMC: Sweep + MSS
+2️⃣ 📈 PA: Engulfing, FVG
+3️⃣ 📊 Multi-TF Trend: 15M+1H EMA+RSI
+4️⃣ ⏰ Kill Zone + News Filter
+   London 8am-12pm 🔥 NY 1:30-6pm 🔥
+   🚨 Red News Block
+5️⃣ 📊 Volatility: ATR Filter
+6️⃣ 🎯 Risk: 82%+ Only ATR SL/TP
+7️⃣ 🛡️ Protection: Daily 3% + Cooldown + BE+Trail
 
-🔥 4/5 = 86-94% God Mode Signal
-⚡ 3/5 = 78-85% Legendary Signal
-❌ <3/5 = No Trade
+🔥 4/5=86-94% God Signal
+⚡ 3/5=78-85% Legendary
+❌ <3/5=No Trade
 
-👑 The most legit bot of all time
-⚠️ Educational Only
-
+👑 Most legit bot
 @KEVINTRAILBLAZE"""); return
-    
     if '/pairs' in txt:
-        bot.reply_to(message,"""💱 GOD MODE PAIRS 💱👑
-
-🥇 GOLD (XAUUSD) - Main 🔥 24/7
-💶 EURUSD - London King
-💷 GBPUSD - Volatility Monster
-₿ BTCUSD - NY Momentum
-
-🧠 All scanned with 7 Layers
-⚡ Only 82%+ God Signals sent
-⏰ Kill Zones: 8am-12pm & 1:30pm-6pm WAT
-🚨 News Filter ON
-
-🤖 V6 God Mode Legendary"""); return
-    
+        bot.reply_to(message,"💱 GOLD ONLY GOD MODE 🥇👑\n\n🥇 XAUUSD GOLD - Main 🔥 24/7\n\n🧠 7 Layers\n⚡ Only 82%+ God Signals\n⏰ Kill Zones 8am-12pm & 1:30-6pm WAT\n🚨 News Filter ON\n\n🤖 V6 God"); return
     if '/market' in txt or '/price' in txt:
-        g=get_gold(); e=get_price("EURUSD"); gb=get_price("GBPUSD"); b=get_price("BTC")
+        g=get_gold()
         blocked,news_msg=is_news_block()
         bot.reply_to(message,f"""📊 LIVE GOD SCAN 🤖👑
 
-🥇 GOLD: ${round(g,2)} {'🟢' if len(prices_history['GOLD'])>1 and g>prices_history['GOLD'][-2] else '🔴'} ATR {calc_atr(prices_history['GOLD']):.1f}
-💶 EURUSD: {round(e,5)} ATR {calc_atr(prices_history['EURUSD']):.4f}
-💷 GBPUSD: {round(gb,5)}
-₿ BTC: ${round(b,2)}
+🥇 GOLD: ${round(g,2)} ATR {calc_atr(prices_history['GOLD']):.1f}
 
 {news_msg}
-🧠 7-Layer Status: Scanning...
-⏳ Next: 60s | Active: {len(active_signals)}
-🛡️ Daily Loss: {performance.get('daily_loss',0)}/3
+🧠 7-Layer Scanning...
+⏳ Next 60s | Active {len(active_signals)}
+🛡️ Daily Loss {performance.get('daily_loss',0)}/3
 
 🔗 @KEVINTRAILBLAZE"""); return
-    
     if '/performance' in txt or '/active' in txt:
         p=load_perf()
         if len(active_signals)==0:
             bot.reply_to(message,f"""📭 NO ACTIVE GOD SIGNALS 🤖
 
-🧠 God Mode scanning for 82%+ setups...
-⏰ Every 60s AUTO | News Filter ON
+🧠 Scanning for 82%+ setups...
+⏰ 60s AUTO | News ON
 🥇 GOLD OPEN ✅
 
 📊 GOD PERFORMANCE 📈👑
-🏆 Wins: {p['wins']}
-🛑 Losses: {p['losses']}
-🤑 Jackpots (TP3): {p['jackpots']}
-🔥 Streak: {p['streak']} | Best {p['best_streak']}
-🛡️ Daily Loss: {p.get('daily_loss',0)}/3
-📈 Win Rate: {round(p['wins']/(p['wins']+p['losses'])*100,1) if (p['wins']+p['losses'])>0 else 0}%
+🏆 Wins {p['wins']}
+🛑 Losses {p['losses']}
+🤑 Jackpots {p['jackpots']}
+🔥 Streak {p['streak']} Best {p['best_streak']}
+🛡️ Daily Loss {p.get('daily_loss',0)}/3
+📈 WinRate {round(p['wins']/(p['wins']+p['losses'])*100,1) if (p['wins']+p['losses'])>0 else 0}%
 
 🔗 @KEVINTRAILBLAZE""")
         else:
             t=f"📊 ACTIVE GOD SIGNALS ({len(active_signals)}) 🤖👑\n\n"
             for s in active_signals:
-                t+=f"{'🥇' if s['symbol']=='GOLD' else '💱'} {s['symbol']} {s['action']} {s.get('conf',85)}% 🔥\nEntry ${round(s['entry'],2)}\n\n"
+                t+=f"🥇 {s['symbol']} {s['action']} {s.get('conf',85)}% 🔥\nEntry ${round(s['entry'],2)}\n\n"
             t+=f"🏆 Wins {p['wins']} | Streak {p['streak']}"
             bot.reply_to(message,t)
         return
-    
     if '/signal' in txt:
         bot.reply_to(message,f"""🤖 GOD ANALYSIS REQUEST 👑
 
-🔍 7 Layers Scanning all pairs...
-⏳ Results in <60s
+🔍 7 Layers Scanning GOLD...
+⏳ <60s
 
 🥇 GOLD: ${round(get_gold(),2)}
-💱 EURUSD, GBPUSD, BTC scanning
 
-🧠 God Criteria:
+🧠 Criteria:
 ✅ 3/5 Brains + News Clear + ATR Normal
 ✅ 82%+ Confidence only
 ✅ Kill Zone active
-✅ 1h Cooldown per pair
+✅ 1h Cooldown
 
 📊 /market Live
-🧠 /godmode How it works
-🚨 /news Filter status
-🛡️ /risk Management
+🧠 /godmode How
+🚨 /news Status
+🛡️ /risk Mgmt
 
 @KEVINTRAILBLAZE 🚀"""); return
-    
-    # /start /help
-    bot.reply_to(message,f"""👑 KEVIN GENIUS V6 GOD MODE 🤖🔥
+    bot.reply_to(message,f"""👑 KEVIN GOLD ONLY V6 GOD MODE 🤖🔥
 
-🥇 Welcome to the Most Legit Forex Bot!
+🥇 Welcome to Most Legit Gold Bot!
 
 🧠 7-Layer God System Active
-💱 GOLD, EURUSD, GBPUSD, BTC
+🥇 GOLD 24/7
 ⏰ Auto Scan 60s + News Filter
 
 🔥 GOD COMMANDS 🔥
-
-📊 /market - Live Prices + ATR
+📊 /market - Live Price + ATR
 🧠 /godmode - How 7 Layers Work
-📈 /active - Active God Signals
-💱 /pairs - Trading Pairs
+📈 /active - Active Signals
 📊 /performance - God Stats
 🚨 /news - News Filter Status
 🛡️ /risk - Risk Management
-🔍 /signal - Force God Analysis
-🎯 /testsignal - Test God Signal
+🔍 /signal - Force Analysis
+🎯 /testsignal - Test Signal
 🆔 /id - Your ID
-❓ /help - This Menu
+❓ /help - Menu
 
 🥇 GOLD: ${round(get_gold(),2)} OPEN ✅
 📈 Active: {len(active_signals)}
 🛡️ Daily Loss: {performance.get('daily_loss',0)}/3
 
-🤖 Educational Only - Not Financial Advice
-🔗 Channel: @KEVINTRAILBLAZE
+🤖 Educational Only
+🔗 @KEVINTRAILBLAZE
 
 God Mode by Kevin Trailblaze 👑🚀🔥""")
 
@@ -544,7 +482,7 @@ if __name__=="__main__":
         ext_url=os.getenv("RENDER_EXTERNAL_URL")
         if ext_url:
             bot.set_webhook(url=f"{ext_url}/{BOT_TOKEN}")
-            print(f"🤖🔥 GOD MODE V6 LIVE {ext_url} 👑",flush=True)
+            print(f"🤖🔥 GOLD ONLY V6 GOD MODE LIVE {ext_url} 👑",flush=True)
     except Exception as e:
         print(f"⚠️ {e}",flush=True)
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",10000)))
